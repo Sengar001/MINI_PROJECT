@@ -12,8 +12,7 @@
 #include<errno.h>
 #include"../ADMIN/admin_struct.h"
 #include"../EMPLOYEE/employee_struct.h"
-// #define ADMIN_LOGIN_ID "admin"
-// #define ADMIN_PASSWORD "34Hr82oIlAE8I"
+
 #define SALT "34"
 
 bool login_admin(int connFD);
@@ -125,10 +124,10 @@ bool login_admin(int connFD){
     }
     int offset=lseek(fileFD,ID*sizeof(struct Admin),SEEK_SET);
 
-    // if(offset==0){
-    //     wBytes=write(connFD,"wrong username",sizeof("wrong username"));
-    //     return false;
-    // }
+    if(offset==-1){
+        wBytes=write(connFD,"wrong username",sizeof("wrong username"));
+        return false;
+    }
 
     struct flock lock;
     lock.l_type=F_RDLCK;

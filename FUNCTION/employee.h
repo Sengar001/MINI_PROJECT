@@ -16,9 +16,7 @@
 
 bool login_employee(int connFD);
 int add_customer(int connFD);
-//bool admin_operation(int connFD);
-//bool modify_employee(int connFD);
-//bool modify_customer(int connFD);
+
 
 bool employee_operation(int connFD){
     if (login_employee(connFD)){
@@ -105,10 +103,10 @@ bool login_employee(int connFD){
     }
     int offset=lseek(fileFD,ID*sizeof(struct Employee),SEEK_SET);
 
-    // if(offset==0){
-    //     wBytes=write(connFD,"wrong username",sizeof("wrong username"));
-    //     return false;
-    // }
+    if(offset==-1){
+        wBytes=write(connFD,"wrong username",sizeof("wrong username"));
+        return false;
+    }
 
     struct flock lock;
     lock.l_type=F_RDLCK;
