@@ -522,6 +522,7 @@ bool change_password(int connFD){
     strcpy(customer.password,hashing);
 
     offset=lseek(fileFD,(ID)*sizeof(struct Customer),SEEK_SET);
+    //
 
     if(offset==-1){
         wBytes=write(connFD,"wrong username",sizeof("wrong username"));
