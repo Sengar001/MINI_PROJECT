@@ -280,6 +280,11 @@ int add_customer(int connFD){
     float balance=atof(rBuffer);
     new_customer.balance=balance;
 
+    //transaction
+    for(int i=0;i<10;i++){
+        new_customer.transaction[i]=-1;
+    }
+
     // password
     char hashing[1000];
     strcpy(hashing,crypt(new_customer.name,SALT));

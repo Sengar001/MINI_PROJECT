@@ -11,6 +11,7 @@
 #include<stdlib.h>
 #include<errno.h>
 #include"../CUSTOMER/customer_struct.h"
+#include"../ACCOUNTS/transaction_struct.h"
 #define SALT "34"
 struct Customer customer;
 
@@ -20,6 +21,9 @@ bool deposit(int connFD);
 bool withdrawl(int connFD);
 bool fund_transfer(int connFD);
 bool change_password(int connFD);
+void transaction_customer(int *array,int ID);
+int transaction_file(int account,float oldbalance,float newbalance,bool operation);
+bool get_transaction_details(int connFD);
 
 
 bool customer_operation(int connFD){
@@ -64,6 +68,7 @@ bool customer_operation(int connFD){
             case 7:
                 break;
             case 8:
+                get_transaction_details(connFD);
                 break;
             case 9:
                 wBytes=write(connFD,"Logging out",strlen("Logging out"));
@@ -259,6 +264,9 @@ bool deposit(int connFD){
     }
     int read_bytes=read(fileFD,&customer,sizeof(customer));
 
+    int transactionID=transaction_file(customer.account,customer.balance,customer.balance+ammount,1);
+    transaction_customer(customer.transaction,transactionID);
+
     float new_balance=customer.balance+ammount;
     customer.balance=new_balance;
     offset=lseek(fileFD,(ID)*sizeof(struct Customer),SEEK_SET);
@@ -320,6 +328,9 @@ bool withdrawl(int connFD){
         return false;
     }
     int read_bytes=read(fileFD,&customer,sizeof(customer));
+
+    int transactionID=transaction_file(customer.account,customer.balance,customer.balance-ammount,0);
+    transaction_customer(customer.transaction,transactionID);    
 
     float new_balance=customer.balance-ammount;
     customer.balance=new_balance;
@@ -396,6 +407,9 @@ bool fund_transfer(int connFD){
     }
     rBytes=read(fileFD,&customer,sizeof(customer));
 
+    int transactionID=transaction_file(customer.account,customer.balance,customer.balance-ammount,0);
+    transaction_customer(customer.transaction,transactionID);
+
     float new_balance=customer.balance-ammount;
     customer.balance=new_balance;
     offset=lseek(fileFD,(ID)*sizeof(struct Customer),SEEK_SET);
@@ -414,6 +428,7 @@ bool fund_transfer(int connFD){
     view_balance(connFD);
 
     ID=account_number-1;
+    struct Customer temp_customer;
     fileFD=open("./CUSTOMER/customer.txt",O_RDWR);
     if(fileFD==-1){
         perror("error in opening in file");
@@ -438,17 +453,20 @@ bool fund_transfer(int connFD){
         perror("error in locking\n");
         return false;
     }
-    rBytes=read(fileFD,&customer,sizeof(customer));
+    rBytes=read(fileFD,&temp_customer,sizeof(temp_customer));
 
-    new_balance=customer.balance+ammount;
-    customer.balance=new_balance;
+    transactionID=transaction_file(temp_customer.account,temp_customer.balance,temp_customer.balance+ammount,1);
+    transaction_customer(temp_customer.transaction,transactionID);
+
+    new_balance=temp_customer.balance+ammount;
+    temp_customer.balance=new_balance;
     offset=lseek(fileFD,(ID)*sizeof(struct Customer),SEEK_SET);
 
     if(offset==-1){
         wBytes=write(connFD,"wrong username",sizeof("wrong username"));
         return false;
     }
-    wBytes=write(fileFD,&customer,sizeof(customer));
+    wBytes=write(fileFD,&temp_customer,sizeof(temp_customer));
     if(wBytes==-1){
         perror("error in writing to file\n");
     }
@@ -522,7 +540,6 @@ bool change_password(int connFD){
     strcpy(customer.password,hashing);
 
     offset=lseek(fileFD,(ID)*sizeof(struct Customer),SEEK_SET);
-    //
 
     if(offset==-1){
         wBytes=write(connFD,"wrong username",sizeof("wrong username"));
@@ -543,4 +560,107 @@ bool change_password(int connFD){
     return false;
 }
 
+void transaction_customer(int *array,int ID){
+    int ptr=0;
+    while(array[ptr]!=-1 && ptr<10){
+        ptr++;
+    }
+    if(ptr>=10){
+        for(int i=1;i<10;i++){
+            array[i-1]=array[i];
+        }
+        array[ptr-1]=ID;
+    }else{
+        array[ptr]=ID;
+    }
+}
+
+int transaction_file(int account,float oldbalance,float newbalance,bool operation){
+    struct Transaction new_transaction;
+    new_transaction.accountNumber=account;
+    new_transaction.oldBalance=oldbalance;
+    new_transaction.newBalance=newbalance;
+    new_transaction.operation=operation;
+    new_transaction.transactionTime=time(NULL);
+    int rBytes,wBytes;
+    int transactionFD=open("./ACCOUNTS/transaction.txt",O_CREAT|O_APPEND|O_RDWR,S_IRWXU);
+    int offset=lseek(transactionFD,-sizeof(struct Transaction),SEEK_END);
+    if(offset>=0){
+        struct Transaction prev_transaction;
+        rBytes=read(transactionFD,&prev_transaction,sizeof(struct Transaction));
+        new_transaction.transactionID=prev_transaction.transactionID+1;
+    }else{
+        new_transaction.transactionID=0;
+    }
+    wBytes=write(transactionFD,&new_transaction,sizeof(struct Transaction));
+
+    return new_transaction.transactionID;
+}
+
+bool get_transaction_details(int connFD){
+    int rBytes, wBytes;                              
+    char rBuffer[1000],wBuffer[10000],tBuffer[1000]; 
+    
+    int ptr=0;
+
+    struct Transaction transaction;
+    struct tm transactionTime;
+
+    int transactionFD=open("./ACCOUNTS/transaction.txt",O_RDONLY);
+    if (transactionFD==-1){
+        perror("error in opening file!");
+        return false;
+    }
+    while(ptr<10 && customer.transaction[ptr]!=-1){
+        int offset=lseek(transactionFD,customer.transaction[ptr]*sizeof(struct Transaction),SEEK_SET);
+        if(offset==-1){
+            perror("Error while seeking to required transaction record!");
+            return false;
+        }
+        struct flock lock;
+        lock.l_type=F_RDLCK;
+        lock.l_whence=SEEK_SET;
+        lock.l_start=customer.transaction[ptr]*sizeof(struct Transaction);
+        lock.l_len=sizeof(struct Transaction);
+        lock.l_pid=getpid();
+
+        int lockingStatus=fcntl(transactionFD,F_SETLKW,&lock);
+        if(lockingStatus==-1){
+            perror("error on taking read lock");
+            return false;
+        }
+
+        rBytes=read(transactionFD,&transaction,sizeof(struct Transaction));
+        if(rBytes==-1){
+            perror("error reading transaction record from file!");
+            return false;
+        }
+
+        lock.l_type=F_UNLCK;
+        fcntl(transactionFD,F_SETLK,&lock);
+
+        // transactionTime=*localtime(&(transaction.transactionTime));
+
+
+        bzero(tBuffer,sizeof(tBuffer));
+        sprintf(tBuffer,"Details of transaction %d - \n\tDate : %s\tOperation : %s \n\tPrevious Balance : %f \n\tNew Balance : %f",(ptr + 1),ctime(&transaction.transactionTime),(transaction.operation?"Deposit":"Withdrawl"),transaction.oldBalance,transaction.newBalance);
+
+        strcat(wBuffer, tBuffer);
+        ptr++;
+    }
+
+    close(transactionFD);
+        
+    if(strlen(wBuffer)==0){
+        write(connFD,"No transactions were performed on this account by the customer!",strlen("No transactions were performed on this account by the customer!"));
+        read(connFD,rBuffer,sizeof(rBuffer)); 
+        return false;
+    }
+    else{
+        write(connFD,wBuffer,strlen(wBuffer));
+        read(connFD,rBuffer,sizeof(rBuffer)); 
+        return true;
+    }   
+    
+}
 #endif
