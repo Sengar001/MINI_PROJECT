@@ -70,7 +70,7 @@ bool customer_operation(int connFD){
             case 8:
                 get_transaction_details(connFD);
                 break;
-            case 9:
+            default:
                 wBytes=write(connFD,"Logging out",strlen("Logging out"));
                 return false;
                 break;
@@ -533,6 +533,8 @@ bool change_password(int connFD){
     }
     else{
         perror("wrong password\n");
+        close(fileFD);
+        return false;
     }
 
     bzero(hashing,sizeof(hashing));
@@ -663,4 +665,5 @@ bool get_transaction_details(int connFD){
     }   
     
 }
+
 #endif

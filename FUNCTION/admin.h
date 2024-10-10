@@ -12,14 +12,15 @@
 #include<errno.h>
 #include"../ADMIN/admin_struct.h"
 #include"../EMPLOYEE/employee_struct.h"
+#include"../CUSTOMER/customer_struct.h"
 
 #define SALT "34"
 
 bool login_admin(int connFD);
 int add_employee(int connFD);
-bool admin_operation(int connFD);
 bool modify_employee(int connFD);
-//bool modify_customer(int connFD);
+bool modify_customer(int connFD);
+bool change_password_admin(int connFD);
 
 bool admin_operation(int connFD){
     if (login_admin(connFD)){
@@ -62,7 +63,7 @@ bool admin_operation(int connFD){
                 }
                 int ptr=atoi(rBuffer);
                 if(ptr==1){
-                    //modify_customer(connFD);
+                    modify_customer(connFD);
                 }else{
                     modify_employee(connFD);
                 }
@@ -71,9 +72,9 @@ bool admin_operation(int connFD){
                 //get_Joint_account_details(connFD, NULL);
                 break;
             case 4:
-                //add_account(connFD);
+                change_password_admin(connFD);
                 break;
-            case 5:
+            default:
                 wBytes=write(connFD,"Logging out",strlen("Logging out"));
                 return false;
                 break;
@@ -173,11 +174,13 @@ bool login_admin(int connFD){
 
         bzero(wBuffer, sizeof(wBuffer));
         wBytes = write(connFD, "The password specified doesn't match!",strlen("The password specified doesn't match!"));
+        read(connFD,rBuffer,sizeof(rBuffer));
     }
     else
     {
         bzero(wBuffer, sizeof(wBuffer));
         wBytes = write(connFD,"The login ID specified doesn't exist!",strlen("The login ID specified doesn't exist!"));
+        read(connFD,rBuffer,sizeof(rBuffer));
     }
 
     return false;
@@ -329,101 +332,351 @@ bool modify_employee(int connFD){
     }
 
     int ID=atoi(rBuffer);
-    
-    int fileFD=open("./EMPLOYEE/employee.txt",O_RDWR);
-    if(fileFD==-1) {
-        perror("Open employee file");
+    int fileFD=open("./EMPLOYEE/employee.txt",O_RDONLY);
+    if(fileFD==-1){
+        perror("error in opening in file");
         return false;
     }
+    int offset=lseek(fileFD,ID*sizeof(struct Employee),SEEK_SET);
 
-    int offset=lseek(fileFD,ID*sizeof(struct Employee),0);
-    if(offset==-1) {
-        wBytes=write(connFD,"envalid employee ID", strlen("envalid employee ID"));
-        close(fileFD);
+    if(offset==-1){
+        wBytes=write(connFD,"wrong ID",sizeof("wrong ID"));
         return false;
     }
 
     struct flock lock;
     lock.l_type=F_RDLCK;
-    lock.l_whence=ID*sizeof(struct Employee);
-    lock.l_start=0;
+    lock.l_whence=SEEK_SET;
+    lock.l_start=ID*sizeof(struct Employee);
     lock.l_len=sizeof(struct Employee);
-    lock.l_pid=getpid();
+    lock.l_pid=getpid(); 
 
-    int lock_status=fcntl(fileFD,F_SETLKW,&lock);
-    if(lock_status==-1){
-        perror("Read lock\n");
+    int lock_check=fcntl(fileFD,F_SETLKW,&lock);
+    if(lock_check==-1){
+        perror("error in locking\n");
         return false;
     }
-
-    rBytes=read(fileFD,&employee,sizeof(struct Employee));
+    rBytes=read(fileFD,&employee,sizeof(employee)); 
     if(rBytes==-1){
-        perror("Reading file\n");
+        perror("error in reading from file!");
     }
+
     lock.l_type=F_UNLCK;
     fcntl(fileFD,F_SETLK,&lock);
     close(fileFD);
-    write(connFD,"current details of the employee!\n",strlen("current details of the employee!\n"));
-    bzero(wBuffer,sizeof(wBuffer));
-    sprintf(wBuffer,"employee ID : %d\nname : %s\ngender : %c\nage : %d",employee.id,employee.name,employee.gender,employee.age);
-    strcat(wBuffer,"\n");
-    strcat(wBuffer,"enter new name!");
-    wBytes=write(connFD,wBuffer,sizeof(wBuffer));
-    if(wBytes==-1){
-        perror("Error writing message to client!");
-        return false;
-    }  
-    rBytes=read(connFD,rBuffer,sizeof(rBuffer));
-    strcpy(employee.name,rBuffer);
-    strcpy(employee.username,employee.name);
-    strcat(employee.username,"-");
-    sprintf(wBuffer,"%d",employee.id);
-    strcat(employee.username,wBuffer);
 
-           
-    fileFD=open("./EMPLOYEE/employee.txt",O_RDWR);
-    if(fileFD==-1) {
-        perror("Open employee file");
-        return false;
+    bzero(wBuffer,sizeof(wBuffer));
+    sprintf(wBuffer,"current details of employee:\nID : %d\nname : %s\nage : %d\ngender : %c\nusername : %s\npress YES for modification",employee.id,employee.name,employee.age,employee.gender,employee.username);
+    write(connFD,wBuffer,sizeof(wBuffer));
+    read(connFD,rBuffer,sizeof(rBuffer));
+    int count=0;
+    while(1){
+        bzero(wBuffer,sizeof(wBuffer));
+        strcpy(wBuffer,"enter details you want to modify\n1. name\n2. age\n3. gender\n4. no change");
+        write(connFD,wBuffer,sizeof(wBuffer));
+        bzero(rBuffer,sizeof(rBuffer));
+        read(connFD,rBuffer,sizeof(rBuffer));
+        int choice=atoi(rBuffer);
+        switch(choice){
+            case 1:
+                write(connFD,"enter new name",sizeof("enter new name"));
+                bzero(rBuffer,sizeof(rBuffer));
+                read(connFD,rBuffer,sizeof(rBuffer));
+                strcpy(employee.name,rBuffer);
+
+                bzero(wBuffer,sizeof(wBuffer));
+                strcpy(employee.username,employee.name);
+                strcat(employee.username,"-");
+                sprintf(wBuffer,"%d",employee.id);
+                strcat(employee.username,wBuffer);
+                break;
+            case 2:
+                write(connFD,"enter new age",sizeof("enter new age"));
+                bzero(rBuffer,sizeof(rBuffer));
+                read(connFD,rBuffer,sizeof(rBuffer));
+                int age=atoi(rBuffer);
+                employee.age=age;
+                break;
+            case 3:
+                write(connFD,"enter gender\nMALE M\n FEMALE F\nOTHER O",sizeof("enter gender\nMALE M\n FEMALE F\nOTHER O"));
+                bzero(rBuffer,sizeof(rBuffer));
+                read(connFD,rBuffer,sizeof(rBuffer));
+                char gen=rBuffer[0];
+                employee.gender=gen;
+                break;
+            default:
+                count++;
+                break;
+        }
+        if(count)
+            break;
     }
 
-    offset=lseek(fileFD,ID*sizeof(struct Employee),0);
-    if(offset==-1) {
-        perror("error seeking in file\n");
-        close(fileFD);
+    fileFD=open("./EMPLOYEE/employee.txt",O_WRONLY);
+    if(fileFD==-1){
+        perror("error in opening in file");
+        return false;
+    }
+    offset=lseek(fileFD,ID*sizeof(struct Employee),SEEK_SET);
+
+    if(offset==-1){
+        wBytes=write(connFD,"wrong ID",sizeof("wrong ID"));
         return false;
     }
 
     lock.l_type=F_WRLCK;
-    lock.l_whence=ID*sizeof(struct Employee);
-    lock.l_start=0;
+    lock.l_whence=SEEK_SET;
+    lock.l_start=ID*sizeof(struct Employee);
     lock.l_len=sizeof(struct Employee);
-    lock.l_pid=getpid();
+    lock.l_pid=getpid(); 
 
-    lock_status=fcntl(fileFD,F_SETLKW,&lock);
-    if(lock_status==-1){
-        perror("write lock\n");
+    lock_check=fcntl(fileFD,F_SETLKW,&lock);
+    if(lock_check==-1){
+        perror("error in locking\n");
         return false;
     }
-
-    wBytes=write(fileFD,&employee,sizeof(struct Employee));
+    wBytes=write(fileFD,&employee,sizeof(employee)); 
     if(wBytes==-1){
-        perror("error in writing to the file\n");
+        perror("error in writing to file!");
     }
+
     lock.l_type=F_UNLCK;
     fcntl(fileFD,F_SETLK,&lock);
-    write(connFD,"new details of the employee!\n",strlen("new details of the employee!\n"));
+    close(fileFD);
+
     bzero(wBuffer,sizeof(wBuffer));
-    sprintf(wBuffer,"employee ID : %d\nname : %s\ngender : %c\nage : %d\nusername : %s",employee.id,employee.name,employee.gender,employee.age,employee.username);
+    sprintf(wBuffer,"new details of employee:\nID : %d\nname : %s\nage : %d\ngender : %c\nusername : %s",employee.id,employee.name,employee.age,employee.gender,employee.username);
+    write(connFD,wBuffer,sizeof(wBuffer));
+    read(connFD,rBuffer,sizeof(rBuffer));
+
+    return true;
+
+}
+
+bool modify_customer(int connFD){
+    int rBytes,wBytes;
+    char rBuffer[1000],wBuffer[1000];
+    struct Customer customer;
+    bzero(rBuffer,sizeof(rBuffer));
+    bzero(wBuffer,sizeof(wBuffer));
+    sprintf(wBuffer,"enter customer account for details modification");
     wBytes=write(connFD,wBuffer,sizeof(wBuffer));
     if(wBytes==-1){
         perror("Error writing message to client!");
         return false;
     }
+    rBytes=read(connFD,rBuffer,sizeof(rBuffer));
+    if(rBytes==-1){
+        perror("Error reading customer ID from client!");
+        return false;
+    }
+
+    int ID=atoi(rBuffer)-1;
+    int fileFD=open("./CUSTOMER/customer.txt",O_RDONLY);
+    if(fileFD==-1){
+        perror("error in opening in file");
+        return false;
+    }
+    int offset=lseek(fileFD,ID*sizeof(struct Customer),SEEK_SET);
+
+    if(offset==-1){
+        wBytes=write(connFD,"wrong ID",sizeof("wrong ID"));
+        return false;
+    }
+
+    struct flock lock;
+    lock.l_type=F_RDLCK;
+    lock.l_whence=SEEK_SET;
+    lock.l_start=ID*sizeof(struct Customer);
+    lock.l_len=sizeof(struct Customer);
+    lock.l_pid=getpid(); 
+
+    int lock_check=fcntl(fileFD,F_SETLKW,&lock);
+    if(lock_check==-1){
+        perror("error in locking\n");
+        return false;
+    }
+    rBytes=read(fileFD,&customer,sizeof(customer)); 
+    if(rBytes==-1){
+        perror("error in reading from file!");
+    }
+
+    lock.l_type=F_UNLCK;
+    fcntl(fileFD,F_SETLK,&lock);
     close(fileFD);
+
+    bzero(wBuffer,sizeof(wBuffer));
+    sprintf(wBuffer,"current details of customer:\nID : %d\nname : %s\nage : %d\ngender : %c\nusername : %s\npress YES for modification",customer.account,customer.name,customer.age,customer.gender,customer.username);
+    write(connFD,wBuffer,sizeof(wBuffer));
+    read(connFD,rBuffer,sizeof(rBuffer));
+    int count=0;
+    while(1){
+        bzero(wBuffer,sizeof(wBuffer));
+        strcpy(wBuffer,"enter details you want to modify\n1. name\n2. age\n3. gender\n4. no change");
+        write(connFD,wBuffer,sizeof(wBuffer));
+        bzero(rBuffer,sizeof(rBuffer));
+        read(connFD,rBuffer,sizeof(rBuffer));
+        int choice=atoi(rBuffer);
+        switch(choice){
+            case 1:
+                write(connFD,"enter new name",sizeof("enter new name"));
+                bzero(rBuffer,sizeof(rBuffer));
+                read(connFD,rBuffer,sizeof(rBuffer));
+                strcpy(customer.name,rBuffer);
+
+                bzero(wBuffer,sizeof(wBuffer));
+                strcpy(customer.username,customer.name);
+                strcat(customer.username,"-");
+                sprintf(wBuffer,"%d",customer.account);
+                strcat(customer.username,wBuffer);
+                break;
+            case 2:
+                write(connFD,"enter new age",sizeof("enter new age"));
+                bzero(rBuffer,sizeof(rBuffer));
+                read(connFD,rBuffer,sizeof(rBuffer));
+                int age=atoi(rBuffer);
+                customer.age=age;
+                break;
+            case 3:
+                write(connFD,"enter gender\nMALE M\n FEMALE F\nOTHER O",sizeof("enter gender\nMALE M\n FEMALE F\nOTHER O"));
+                bzero(rBuffer,sizeof(rBuffer));
+                read(connFD,rBuffer,sizeof(rBuffer));
+                char gen=rBuffer[0];
+                customer.gender=gen;
+                break;
+            default:
+                count++;
+                break;
+        }
+        if(count)
+            break;
+    }
+
+    fileFD=open("./CUSTOMER/customer.txt",O_WRONLY);
+    if(fileFD==-1){
+        perror("error in opening in file");
+        return false;
+    }
+    offset=lseek(fileFD,ID*sizeof(struct Customer),SEEK_SET);
+
+    if(offset==-1){
+        wBytes=write(connFD,"wrong ID",sizeof("wrong ID"));
+        return false;
+    }
+
+    lock.l_type=F_WRLCK;
+    lock.l_whence=SEEK_SET;
+    lock.l_start=ID*sizeof(struct Customer);
+    lock.l_len=sizeof(struct Customer);
+    lock.l_pid=getpid(); 
+
+    lock_check=fcntl(fileFD,F_SETLKW,&lock);
+    if(lock_check==-1){
+        perror("error in locking\n");
+        return false;
+    }
+    wBytes=write(fileFD,&customer,sizeof(customer)); 
+    if(wBytes==-1){
+        perror("error in writing to file!");
+    }
+
+    lock.l_type=F_UNLCK;
+    fcntl(fileFD,F_SETLK,&lock);
+    close(fileFD);
+
+    bzero(wBuffer,sizeof(wBuffer));
+    sprintf(wBuffer,"new details of customer:\nID : %d\nname : %s\nage : %d\ngender : %c\nusername : %s",customer.account,customer.name,customer.age,customer.gender,customer.username);
+    write(connFD,wBuffer,sizeof(wBuffer));
+    read(connFD,rBuffer,sizeof(rBuffer));
+
+    return true;
+
+}
+
+bool change_password_admin(int connFD){
+    int rBytes,wBytes;            
+    char rBuffer[1000],wBuffer[1000];
+    struct Admin admin;
+    int ID=0;
+    wBytes=write(connFD,"enter your old password!",sizeof("enter your old password!"));
+    if(wBytes==-1){
+        perror("error in writing to client\n");
+        return false;
+    }
+    rBytes=read(connFD,rBuffer,sizeof(rBuffer));
+    if(rBytes==-1){
+        perror("error in reading from client\n");
+    }
+
+    int fileFD=open("./ADMIN/admin.txt",O_RDWR);
+    if(fileFD==-1){
+        perror("error in opening in file");
+        return false;
+    }
+
+    int offset=lseek(fileFD,(ID)*sizeof(struct Admin),SEEK_SET);
+
+    if(offset==-1){
+        wBytes=write(connFD,"wrong username",sizeof("wrong username"));
+        return false;
+    }
+
+    struct flock lock;
+    lock.l_type=F_WRLCK;
+    lock.l_whence=SEEK_SET;
+    lock.l_start=(ID)*sizeof(struct Admin);
+    lock.l_len=sizeof(struct Admin);
+    lock.l_pid=getpid();
+
+    int lock_check=fcntl(fileFD,F_SETLKW,&lock);
+    if(lock_check==-1){
+        perror("error in locking\n");
+        return false;
+    }
+    int read_bytes=read(fileFD,&admin,sizeof(admin));
+
+    char hashing[1000];
+    strcpy(hashing,crypt(rBuffer,SALT));
+    if(strcmp(hashing,admin.password)==0){
+        wBytes=write(connFD,"enter new password!",sizeof("enter new password!"));
+        if(wBytes==-1){
+            perror("error in writing to client\n");
+        }
+        bzero(rBuffer,sizeof(rBuffer));
+        rBytes=read(connFD,rBuffer,sizeof(rBuffer));
+        if(rBytes==-1){
+            perror("error in reading from client\n");
+        }
+    }
+    else{
+        perror("wrong password\n");
+        close(fileFD);
+        return false;
+    }
+
+    bzero(hashing,sizeof(hashing));
+    strcpy(hashing,crypt(rBuffer,SALT));
+    strcpy(admin.password,hashing);
+
+    offset=lseek(fileFD,(ID)*sizeof(struct Admin),SEEK_SET);
+
+    if(offset==-1){
+        wBytes=write(connFD,"wrong username",sizeof("wrong username"));
+        return false;
+    }
+    wBytes=write(fileFD,&admin,sizeof(admin));
+    if(wBytes==-1){
+        perror("error in writing to file\n");
+    }
+    lock.l_type=F_UNLCK;
+    fcntl(fileFD,F_SETLK,&lock);
+    close(fileFD);
+    wBytes=write(connFD,"password updated!",sizeof("password updated!"));
+    if(wBytes==-1){
+        perror("error in writing to client\n");
+    }
     read(connFD,rBuffer,sizeof(rBuffer));
     return false;
-
 }
 
 #endif
