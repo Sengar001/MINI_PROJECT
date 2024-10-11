@@ -22,54 +22,92 @@ int add_customer(int connFD);
 bool modify_customer_byemployee(int connFD);
 bool get_transaction_details_byemployee(int connFD);
 bool change_password_employee(int connFD);
+bool activate_deactivate_account(int connFD);
 
 
-bool employee_operation(int connFD){
+bool employee_operation(int connFD,int role){
     if (login_employee(connFD)){
         int wBytes,rBytes;            
-        char rBuffer[1000], wBuffer[1000]; 
-        bzero(wBuffer,sizeof(wBuffer));
-        strcpy(wBuffer,"Welcome employee!");
-        while(1){
-            strcat(wBuffer,"\n");
-            strcat(wBuffer,"1. add new customer\n2. modify customer details\n3. process loan application\n4. approve/reject loan\n5. view loan application\n6. view customer transaction\n7. change password\n8. logout");
-            wBytes=write(connFD,wBuffer,strlen(wBuffer));
-            if(wBytes==-1){
-                perror("Error while writing EMPLOYEE_MENU to client!");
-                return false;
-            }
+        char rBuffer[1000], wBuffer[1000];
+        if(employee.ismanager==false && role==3){ 
             bzero(wBuffer,sizeof(wBuffer));
-            rBytes=read(connFD,rBuffer,sizeof(rBuffer));
-            if(rBytes==-1){
-                perror("Error while reading client's choice for EMPLOYEE_MENU");
-                return false;
+            strcpy(wBuffer,"Welcome employee!");
+            while(1){
+                strcat(wBuffer,"\n");
+                strcat(wBuffer,"1. add new customer\n2. modify customer details\n3. process loan application\n4. approve/reject loan\n5. view loan application\n6. view customer transaction\n7. change password\n8. logout");
+                wBytes=write(connFD,wBuffer,strlen(wBuffer));
+                if(wBytes==-1){
+                    perror("Error while writing EMPLOYEE_MENU to client!");
+                    return false;
+                }
+                bzero(wBuffer,sizeof(wBuffer));
+                rBytes=read(connFD,rBuffer,sizeof(rBuffer));
+                if(rBytes==-1){
+                    perror("Error while reading client's choice for EMPLOYEE_MENU");
+                    return false;
+                }
+                int choice=atoi(rBuffer);
+                switch(choice){
+                case 1:
+                    add_customer(connFD);
+                    break;
+                case 2:
+                    modify_customer_byemployee(connFD);
+                    break;
+                case 3:
+                    //get_Joint_account_details(connFD, NULL);
+                    break;
+                case 4:
+                    //add_account(connFD);
+                    break;
+                case 5:
+                    break;
+                case 6:
+                    get_transaction_details_byemployee(connFD);
+                    break;
+                case 7:
+                    change_password_employee(connFD);
+                    break;
+                default:
+                    wBytes=write(connFD,"Logging out",strlen("Logging out"));
+                    return false;
+                    break;
+                }
             }
-            int choice=atoi(rBuffer);
-            switch(choice){
-            case 1:
-                add_customer(connFD);
-                break;
-            case 2:
-                modify_customer_byemployee(connFD);
-                break;
-            case 3:
-                //get_Joint_account_details(connFD, NULL);
-                break;
-            case 4:
-                //add_account(connFD);
-                break;
-            case 5:
-                break;
-            case 6:
-                get_transaction_details_byemployee(connFD);
-                break;
-            case 7:
-                change_password_employee(connFD);
-                break;
-            default:
-                wBytes=write(connFD,"Logging out",strlen("Logging out"));
-                return false;
-                break;
+        }else if(employee.ismanager==true && role==2){
+            bzero(wBuffer,sizeof(wBuffer));
+            strcpy(wBuffer,"Welcome manager!");
+            while(1){
+                strcat(wBuffer,"\n");
+                strcat(wBuffer,"1. activate/deactivate customer account\n2. assign loan application to employee\n4. review cutomer feedback\n5. logout");
+                wBytes=write(connFD,wBuffer,strlen(wBuffer));
+                if(wBytes==-1){
+                    perror("Error while writing MANAGER_MENU to client!");
+                    return false;
+                }
+                bzero(wBuffer,sizeof(wBuffer));
+                rBytes=read(connFD,rBuffer,sizeof(rBuffer));
+                if(rBytes==-1){
+                    perror("Error while reading client's choice for MANAGER_MENU");
+                    return false;
+                }
+                int choice=atoi(rBuffer);
+                switch(choice){
+                case 1:
+                    activate_deactivate_account(connFD);
+                    break;
+                case 2:
+                    break;
+                case 3:
+                    break;
+                case 4:
+                    
+                    break;
+                default:
+                    wBytes=write(connFD,"Logging out",strlen("Logging out"));
+                    return false;
+                    break;
+                }
             }
         }
     }
@@ -275,6 +313,9 @@ int add_customer(int connFD){
     
     //status
     new_customer.active=true;
+
+    //loan
+    new_customer.loanID=-1;
 
     //balance
     wBytes=write(connFD,"please enter balance!",strlen("please enter balance!"));
@@ -648,6 +689,104 @@ bool change_password_employee(int connFD){
         perror("error in writing to client\n");
     }
     read(connFD,rBuffer,sizeof(rBuffer));
+    return false;
+}
+
+bool activate_deactivate_account(int connFD){
+    int rBytes,wBytes;            
+    char rBuffer[1000],wBuffer[1000];
+    struct Customer customer;
+    write(connFD,"enter account number want to activate/deactivate!",sizeof("enter account number want to activate/deactivate!"));
+    read(connFD,rBuffer,sizeof(rBuffer));
+    int ID=atoi(rBuffer)-1;
+    int fileFD=open("./CUSTOMER/customer.txt",O_RDONLY);
+    if(fileFD==-1){
+        perror("error in opening in file");
+        return false;
+    }
+    int offset=lseek(fileFD,(ID)*sizeof(struct Customer),SEEK_SET);
+
+    if(offset==-1){
+        wBytes=write(connFD,"wrong username",sizeof("wrong username"));
+        return false;
+    }
+
+    struct flock lock;
+    lock.l_type=F_RDLCK;
+    lock.l_whence=SEEK_SET;
+    lock.l_start=(ID)*sizeof(struct Customer);
+    lock.l_len=sizeof(struct Customer);
+    lock.l_pid=getpid();
+
+    int lock_check=fcntl(fileFD,F_SETLKW,&lock);
+    if(lock_check==-1){
+        perror("error in locking\n");
+        return false;
+    }
+    int read_bytes=read(fileFD,&customer,sizeof(customer));
+    lock.l_type=F_UNLCK;
+    fcntl(fileFD,F_SETLK,&lock);
+    close(fileFD);
+    bzero(wBuffer,sizeof(wBuffer));
+    sprintf(wBuffer,"currently account is %s",(customer.active?"ACTIVE":"DEACTIVE"));
+    if(customer.active==true){
+        strcat(wBuffer,"\n");
+        strcat(wBuffer,"1. Deactivate\n2. No change");
+        write(connFD,wBuffer,sizeof(wBuffer));
+        bzero(rBuffer,sizeof(rBuffer));
+        read(connFD,rBuffer,sizeof(rBuffer));
+        int choice=atoi(rBuffer);
+        switch(choice){
+            case 1:
+                customer.active=false;
+                break;
+            default:
+                break;
+        }
+    }else{
+        strcat(wBuffer,"\n");
+        strcat(wBuffer,"1. Activate\n2. No change");
+        write(connFD,wBuffer,sizeof(wBuffer));
+        bzero(rBuffer,sizeof(rBuffer));
+        read(connFD,rBuffer,sizeof(rBuffer));
+        int choice=atoi(rBuffer);
+        switch(choice){
+            case 1:
+                customer.active=true;
+                break;
+            default:
+                break;
+        }
+    }
+
+    fileFD=open("./CUSTOMER/customer.txt",O_WRONLY);
+    if(fileFD==-1){
+        perror("error in opening in file");
+        return false;
+    }
+    offset=lseek(fileFD,(ID)*sizeof(struct Customer),SEEK_SET);
+
+    if(offset==-1){
+        wBytes=write(connFD,"wrong username",sizeof("wrong username"));
+        return false;
+    }
+
+    lock.l_type=F_WRLCK;
+    lock.l_whence=SEEK_SET;
+    lock.l_start=(ID)*sizeof(struct Customer);
+    lock.l_len=sizeof(struct Customer);
+    lock.l_pid=getpid();
+
+    lock_check=fcntl(fileFD,F_SETLKW,&lock);
+    if(lock_check==-1){
+        perror("error in locking\n");
+        return false;
+    }
+    write(fileFD,&customer,sizeof(customer));
+    lock.l_type=F_UNLCK;
+    fcntl(fileFD,F_SETLK,&lock);
+    close(fileFD);
+
     return false;
 }
 

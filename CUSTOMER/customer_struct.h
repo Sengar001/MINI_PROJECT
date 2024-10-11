@@ -12,6 +12,7 @@ struct Customer
     bool active;
     float balance;
     int transaction[10];
+    int loanID;
 };
 
 #endif

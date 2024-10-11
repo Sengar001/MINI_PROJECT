@@ -32,10 +32,10 @@ void connection(int fd){
                 admin_operation(fd);
                 break;
             case 2:
-                //manager(fd);
+                employee_operation(fd,2);
                 break;
             case 3:
-                employee_operation(fd);
+                employee_operation(fd,3);
                 break;
             case 4:
                 customer_operation(fd);

@@ -12,6 +12,7 @@
 #include<errno.h>
 #include"../CUSTOMER/customer_struct.h"
 #include"../ACCOUNTS/transaction_struct.h"
+#include"../ACCOUNTS/loan_struct.h"
 #define SALT "34"
 struct Customer customer;
 
@@ -24,6 +25,7 @@ bool change_password(int connFD);
 void transaction_customer(int *array,int ID);
 int transaction_file(int account,float oldbalance,float newbalance,bool operation);
 bool get_transaction_details(int connFD);
+bool apply_for_loan(int connFD);
 
 
 bool customer_operation(int connFD){
@@ -61,6 +63,7 @@ bool customer_operation(int connFD){
                 fund_transfer(connFD);
                 break;
             case 5:
+                apply_for_loan(connFD);
                 break;
             case 6:
                 change_password(connFD);
@@ -72,6 +75,7 @@ bool customer_operation(int connFD){
                 break;
             default:
                 wBytes=write(connFD,"Logging out",strlen("Logging out"));
+                read(connFD,rBuffer,sizeof(rBuffer));
                 return false;
                 break;
             }
@@ -312,6 +316,7 @@ bool withdrawl(int connFD){
 
     if(offset==-1){
         wBytes=write(connFD,"wrong username",sizeof("wrong username"));
+        read(connFD,rBuffer,sizeof(rBuffer));
         return false;
     }
 
@@ -333,6 +338,11 @@ bool withdrawl(int connFD){
     transaction_customer(customer.transaction,transactionID);    
 
     float new_balance=customer.balance-ammount;
+    if(new_balance<=0){
+        write(connFD,"Insufficient Balanace can't withdrawl!",sizeof("Insufficient Balanace can't withdrawl!"));
+        read(connFD,rBuffer,sizeof(rBuffer));
+        return false;
+    }
     customer.balance=new_balance;
     offset=lseek(fileFD,(ID)*sizeof(struct Customer),SEEK_SET);
 
@@ -411,6 +421,11 @@ bool fund_transfer(int connFD){
     transaction_customer(customer.transaction,transactionID);
 
     float new_balance=customer.balance-ammount;
+    if(new_balance<=0){
+        write(connFD,"Insufficient Balanace can't withdrawl!",sizeof("Insufficient Balanace can't withdrawl!"));
+        read(connFD,rBuffer,sizeof(rBuffer));
+        return false;
+    }
     customer.balance=new_balance;
     offset=lseek(fileFD,(ID)*sizeof(struct Customer),SEEK_SET);
 
@@ -425,7 +440,6 @@ bool fund_transfer(int connFD){
     lock.l_type=F_UNLCK;
     fcntl(fileFD,F_SETLK,&lock);
     close(fileFD);
-    view_balance(connFD);
 
     ID=account_number-1;
     struct Customer temp_customer;
@@ -473,6 +487,8 @@ bool fund_transfer(int connFD){
     lock.l_type=F_UNLCK;
     fcntl(fileFD,F_SETLK,&lock);
     close(fileFD);
+
+    view_balance(connFD);
 
     return false;
 }
@@ -664,6 +680,114 @@ bool get_transaction_details(int connFD){
         return true;
     }   
     
+}
+
+bool apply_for_loan(int connFD){
+    int rBytes,wBytes;            
+    char rBuffer[1000],wBuffer[1000];
+    if(customer.loanID!=-1){
+        write(connFD,"you have already applied for loan!",sizeof("you have already applied for loan!"));
+        read(connFD,rBuffer,sizeof(rBuffer));
+        return false;
+    }
+    struct Loan new_loan,prev_loan;
+
+    int loanFD=open("./ACCOUNTS/loan.txt",O_RDONLY);
+    if(loanFD==-1 && errno==ENOENT){
+        new_loan.ID=0;
+    }else if(loanFD==-1){
+        perror("error in opening file\n");
+        return false;
+    }else{
+        int offset=lseek(loanFD,-sizeof(struct Loan),SEEK_END);
+        if(offset==-1){
+            perror("Error seeking to last loan record!");
+            return false;
+        }
+
+    struct flock lock;
+    lock.l_type=F_RDLCK;
+    lock.l_whence=SEEK_SET;
+    lock.l_start=offset;
+    lock.l_len=sizeof(struct Loan);
+    lock.l_pid=getpid();
+
+    int lockingStatus=fcntl(loanFD,F_SETLKW,&lock);
+    if(lockingStatus==-1){
+        perror("Error obtaining read lock on loan record!");
+        return false;
+    }
+
+    rBytes=read(loanFD,&prev_loan,sizeof(struct Loan));
+    if(rBytes==-1){
+        perror("Error while reading loan record from file!");
+        return false;
+    }
+
+    lock.l_type = F_UNLCK;
+    fcntl(loanFD,F_SETLK,&lock);
+    close(loanFD);
+    new_loan.ID=prev_loan.ID+1;
+    }
+
+    new_loan.account=customer.account;
+    write(connFD,"enter loan ammount",sizeof("enter loan ammount"));
+    bzero(rBuffer,sizeof(rBuffer));
+    read(connFD,rBuffer,sizeof(rBuffer));
+    new_loan.ammount=atoi(rBuffer);
+    new_loan.isapprove=false;
+    new_loan.isassign=false;
+
+    loanFD=open("./ACCOUNTS/loan.txt",O_CREAT|O_APPEND|O_WRONLY,S_IRWXU);
+    if(loanFD==-1){
+        perror("Error while creating opening loan file!");
+        return false;
+    }
+
+    wBytes=write(loanFD,&new_loan,sizeof(struct Loan));
+    if(wBytes==-1){
+        perror("Error while reading loan record from file!");
+        return false;
+    }
+
+    close(loanFD);
+
+    int fileFD=open("./CUSTOMER/customer.txt",O_WRONLY);
+    if(fileFD==-1){
+        perror("error in opening in file");
+        return false;
+    }
+
+    int offset=lseek(fileFD,(customer.account-1)*sizeof(struct Customer),SEEK_SET);
+
+    if(offset==-1){
+        wBytes=write(connFD,"wrong username",sizeof("wrong username"));
+        read(connFD,rBuffer,sizeof(rBuffer));
+        return false;
+    }
+
+    struct flock lock;
+    lock.l_type=F_WRLCK;
+    lock.l_whence=SEEK_SET;
+    lock.l_start=(customer.account-1)*sizeof(struct Customer);
+    lock.l_len=sizeof(struct Customer);
+    lock.l_pid=getpid();
+
+    int lock_check=fcntl(fileFD,F_SETLKW,&lock);
+    if(lock_check==-1){
+        perror("error in locking\n");
+        return false;
+    }
+    customer.loanID=new_loan.ID;
+    write(fileFD,&customer,sizeof(customer));
+    lock.l_type=F_UNLCK;
+    fcntl(fileFD,F_SETLK,&lock);
+    close(fileFD);
+    write(connFD,"you have successfully applied for loan!",sizeof("you have successfully applied for loan!"));
+    read(connFD,rBuffer,sizeof(rBuffer));
+
+    return false;
+
 }
 
 #endif

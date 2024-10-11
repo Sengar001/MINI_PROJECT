@@ -8,6 +8,8 @@ struct Employee {
     int age;
     char username[30];
     char password[30];
+    bool ismanager;//true:manager,false:employee
+    int loan[10];
 };
 
 #endif

@@ -284,6 +284,20 @@ int add_employee(int connFD){
     int age=atoi(rBuffer);
     new_employee.age=age;
 
+    //role
+    write(connFD,"Enter role of Employee\nM:MANAGER\nE:EMPLOYEE",sizeof("Enter role of Employee\n0:MANAGER\n1:EMPLOYEE"));
+    bzero(rBuffer,sizeof(rBuffer));
+    read(connFD,rBuffer,sizeof(rBuffer));
+    if(rBuffer[0]=='M')
+        new_employee.ismanager=true;
+    else
+        new_employee.ismanager=false;
+
+    //loan
+    for(int i=0;i<10;i++){
+        new_employee.loan[i]=-1;
+    }
+
     // password
     char hashing[1000];
     strcpy(hashing,crypt(new_employee.name,SALT));
