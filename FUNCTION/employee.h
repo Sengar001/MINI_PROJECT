@@ -13,6 +13,7 @@
 #include"../EMPLOYEE/employee_struct.h"
 #include"../CUSTOMER/customer_struct.h"
 #include"../ACCOUNTS/transaction_struct.h"
+#include"../ACCOUNTS/loan_struct.h"
 #define SALT "34"
 
 struct Employee employee;
@@ -23,6 +24,9 @@ bool modify_customer_byemployee(int connFD);
 bool get_transaction_details_byemployee(int connFD);
 bool change_password_employee(int connFD);
 bool activate_deactivate_account(int connFD);
+bool assign_loan_to_employee(int connFD);
+bool view_assign_loan_application(int connFD);
+bool approved_reject_loan(int connFD);
 
 
 bool employee_operation(int connFD,int role){
@@ -34,7 +38,7 @@ bool employee_operation(int connFD,int role){
             strcpy(wBuffer,"Welcome employee!");
             while(1){
                 strcat(wBuffer,"\n");
-                strcat(wBuffer,"1. add new customer\n2. modify customer details\n3. process loan application\n4. approve/reject loan\n5. view loan application\n6. view customer transaction\n7. change password\n8. logout");
+                strcat(wBuffer,"1. add new customer\n2. modify customer details\n3. approve/reject loan\n4. view assigned loan application\n5. view customer transaction\n6. change password\n7. logout");
                 wBytes=write(connFD,wBuffer,strlen(wBuffer));
                 if(wBytes==-1){
                     perror("Error while writing EMPLOYEE_MENU to client!");
@@ -55,17 +59,15 @@ bool employee_operation(int connFD,int role){
                     modify_customer_byemployee(connFD);
                     break;
                 case 3:
-                    //get_Joint_account_details(connFD, NULL);
+                    approved_reject_loan(connFD);
                     break;
                 case 4:
-                    //add_account(connFD);
+                    view_assign_loan_application(connFD);
                     break;
                 case 5:
-                    break;
-                case 6:
                     get_transaction_details_byemployee(connFD);
                     break;
-                case 7:
+                case 6:
                     change_password_employee(connFD);
                     break;
                 default:
@@ -79,7 +81,7 @@ bool employee_operation(int connFD,int role){
             strcpy(wBuffer,"Welcome manager!");
             while(1){
                 strcat(wBuffer,"\n");
-                strcat(wBuffer,"1. activate/deactivate customer account\n2. assign loan application to employee\n4. review cutomer feedback\n5. logout");
+                strcat(wBuffer,"1. activate/deactivate customer account\n2. assign loan application to employee\n3. review cutomer feedback\n4. change password\n5. logout");
                 wBytes=write(connFD,wBuffer,strlen(wBuffer));
                 if(wBytes==-1){
                     perror("Error while writing MANAGER_MENU to client!");
@@ -97,11 +99,12 @@ bool employee_operation(int connFD,int role){
                     activate_deactivate_account(connFD);
                     break;
                 case 2:
+                    assign_loan_to_employee(connFD);
                     break;
                 case 3:
                     break;
                 case 4:
-                    
+                    change_password_employee(connFD);
                     break;
                 default:
                     wBytes=write(connFD,"Logging out",strlen("Logging out"));
@@ -524,6 +527,7 @@ bool get_transaction_details_byemployee(int connFD){
 
     if(offset==-1){
         wBytes=write(connFD,"wrong username",sizeof("wrong username"));
+        read(connFD,rBuffer,sizeof(rBuffer));
         return false;
     }
 
@@ -787,6 +791,279 @@ bool activate_deactivate_account(int connFD){
     fcntl(fileFD,F_SETLK,&lock);
     close(fileFD);
 
+    return false;
+}
+
+bool assign_loan_to_employee(int connFD){
+    int rBytes,wBytes;            
+    char rBuffer[1000],wBuffer[1000];
+    struct Loan loan;
+    write(connFD,"enter loan ID!",sizeof("enter loan ID!"));
+    read(connFD,rBuffer,sizeof(rBuffer));
+    int ID=atoi(rBuffer);
+    int loanFD=open("./ACCOUNTS/loan.txt",O_RDWR);
+    if(loanFD==-1){
+        perror("error in opening file");
+        return false;
+    }
+    int offset=lseek(loanFD,(ID)*sizeof(struct Loan),SEEK_SET);
+    if(offset==-1){
+        wBytes=write(connFD,"wrong ID",sizeof("wrong ID"));
+        read(connFD,rBuffer,sizeof(rBuffer));
+        return false;
+    }
+    struct flock lock;
+    lock.l_type=F_WRLCK;
+    lock.l_whence=SEEK_SET;
+    lock.l_start=(ID)*sizeof(struct Loan);
+    lock.l_len=sizeof(struct Loan);
+    lock.l_pid=getpid();
+
+    int lock_check=fcntl(loanFD,F_SETLKW,&lock);
+    if(lock_check==-1){
+        perror("error in locking\n");
+        return false;
+    }
+    rBytes=read(loanFD,&loan,sizeof(loan));
+    if(rBytes==-1){
+        perror("error in reading file\n");
+        return false;
+    }
+    if(loan.isassign==true){
+        write(connFD,"loan already assigned!",sizeof("loan already assigned!"));
+        read(connFD,rBuffer,sizeof(rBuffer));
+        close(loanFD);
+        return false;
+    }
+
+    int fileFD=open("./EMPLOYEE/employee.txt",O_RDWR);
+    if(fileFD==-1){
+        perror("error in opening file");
+        return false;
+    }
+    write(connFD,"enter employee id you want to assign loan!",sizeof("enter employee id you want to assign loan!"));
+    bzero(rBuffer,sizeof(rBuffer));
+    read(connFD,rBuffer,sizeof(rBuffer));
+
+    while(1){
+    struct Employee temp_employee;
+    int employee_ID=atoi(rBuffer);
+    int offset=lseek(fileFD,(employee_ID)*sizeof(struct Employee),SEEK_SET);
+    if(offset==-1){
+        wBytes=write(connFD,"wrong ID",sizeof("wrong ID"));
+        read(connFD,rBuffer,sizeof(rBuffer));
+        return false;
+    }
+    lock.l_type=F_WRLCK;
+    lock.l_whence=SEEK_SET;
+    lock.l_start=(ID)*sizeof(struct Employee);
+    lock.l_len=sizeof(struct Employee);
+    lock.l_pid=getpid();
+
+    lock_check=fcntl(fileFD,F_SETLKW,&lock);
+    if(lock_check==-1){
+        perror("error in locking\n");
+        return false;
+    }
+    rBytes=read(fileFD,&temp_employee,sizeof(temp_employee));
+    if(rBytes==-1){
+        perror("error in reading file");
+        return false;
+    }
+    if(temp_employee.ismanager==true){
+        write(connFD,"can't assign loan employee is a manager!",sizeof("can't assign loan employee is a manager!"));
+        read(connFD,rBuffer,sizeof(rBuffer));
+        close(fileFD);
+        return false;
+    }
+    int ptr=0;
+    while(temp_employee.loan[ptr]!=-1 && ptr<10){
+        ptr++;
+    }
+    if(ptr>=10){
+        bzero(wBuffer,sizeof(wBuffer));
+        strcpy(wBuffer,"can't assign loan already too many loan assign to employee");
+        strcat(wBuffer,"\n");
+        strcat(wBuffer,"enter new employee ID!");
+        write(connFD,wBuffer,sizeof(wBuffer));
+        bzero(rBuffer,sizeof(rBuffer));
+        read(connFD,rBuffer,sizeof(rBuffer));
+        continue;
+    }else{
+        temp_employee.loan[ptr]=ID;
+        loan.isassign=true;
+    }
+    offset=lseek(fileFD,(employee_ID)*sizeof(struct Employee),SEEK_SET);
+    write(fileFD,&temp_employee,sizeof(temp_employee));
+    lock.l_type=F_UNLCK;
+    fcntl(fileFD,F_SETLK,&lock);
+    break;
+    }
+    close(fileFD);
+
+    lseek(loanFD,(ID)*sizeof(struct Loan),SEEK_SET);
+    wBytes=write(loanFD,&loan,sizeof(loan));
+    if(wBytes==-1){
+        perror("error in writeing to file\n");
+        return false;
+    }
+    lock.l_type=F_UNLCK;
+    fcntl(loanFD,F_SETLK,&lock);
+    close(loanFD);
+    write(connFD,"loan assign successfully",sizeof("loan assign successfully"));
+    read(connFD,rBuffer,sizeof(rBuffer));
+    return false;
+}
+
+bool view_assign_loan_application(int connFD){           
+    char rBuffer[1000],wBuffer[1000];
+    char tBuffer[1000];
+    struct Loan loan;
+    int loanFD=open("./ACCOUNTS/loan.txt",O_RDWR);
+    if(loanFD==-1){
+        perror("error in opening file");
+        return false;
+    }
+    bzero(wBuffer,sizeof(wBuffer));
+    int ptr=0;
+    struct flock lock;
+    while(employee.loan[ptr]!=-1 && ptr<10){
+        int ID=employee.loan[ptr];
+        lseek(loanFD,(ID)*sizeof(struct Loan),SEEK_SET);
+        lock.l_type=F_RDLCK;
+        lock.l_whence=SEEK_SET;
+        lock.l_start=(ID)*sizeof(struct Loan);
+        lock.l_len=sizeof(struct Loan);
+        lock.l_pid=getpid();
+
+        int lock_check=fcntl(loanFD,F_SETLKW,&lock);
+        if(lock_check==-1){
+            perror("error in locking\n");
+            return false;
+        }
+        int read_bytes=read(loanFD,&loan,sizeof(loan));
+        if(read_bytes==-1){
+            perror("error in reading file\n");
+            return false;
+        }
+        bzero(tBuffer,sizeof(tBuffer));
+        sprintf(tBuffer,"Assigned loan details: \nLoan ID : %d Account : %d Ammount : %f\n",loan.ID,loan.account,loan.ammount);
+        strcat(wBuffer,tBuffer);
+        ptr++;
+    }
+    lock.l_type=F_UNLCK;
+    fcntl(loanFD,F_SETLK,&lock);
+    close(loanFD);
+
+    if(strlen(wBuffer)==0){
+        write(connFD,"No loan assigned!",strlen("No loan assigned!"));
+        read(connFD,rBuffer,sizeof(rBuffer)); 
+        return false;
+    }
+    else{
+        write(connFD,wBuffer,strlen(wBuffer));
+        read(connFD,rBuffer,sizeof(rBuffer)); 
+        return true;
+    }   
+
+}
+
+bool approved_reject_loan(int connFD){
+    view_assign_loan_application(connFD);
+    char rBuffer[1000],wBuffer[1000];
+    write(connFD,"enter loan ID!",sizeof("enter loan ID!"));
+    read(connFD,rBuffer,sizeof(rBuffer));
+    int ID=atoi(rBuffer);
+    struct Loan loan;
+    int loanFD=open("./ACCOUNTS/loan.txt",O_RDWR);
+    if(loanFD==-1){
+        perror("error in opening file");
+        return false;
+    }
+    int offset=lseek(loanFD,(ID)*sizeof(struct Loan),SEEK_SET);
+    if(offset==-1){
+        write(connFD,"wrong ID",sizeof("wrong ID"));
+        read(connFD,rBuffer,sizeof(rBuffer));
+        return false;
+    }
+    struct flock lock;
+    lock.l_type=F_WRLCK;
+    lock.l_whence=SEEK_SET;
+    lock.l_start=(ID)*sizeof(struct Loan);
+    lock.l_len=sizeof(struct Loan);
+    lock.l_pid=getpid();
+
+    int lock_check=fcntl(loanFD,F_SETLKW,&lock);
+    if(lock_check==-1){
+        perror("error in locking\n");
+        return false;
+    }
+    int rBytes=read(loanFD,&loan,sizeof(loan));
+    if(rBytes==-1){
+        perror("error in reading file\n");
+        return false;
+    }
+    bzero(wBuffer,sizeof(wBuffer));
+    sprintf(wBuffer,"1. APPROVE LOAN\n2. REJECT LOAN");
+    write(connFD,wBuffer,sizeof(wBuffer));
+    bzero(rBuffer,sizeof(rBuffer));
+    read(connFD,rBuffer,sizeof(rBuffer));
+    int choice=atoi(rBuffer);
+    switch(choice){
+        case 1:
+            loan.isapprove=true;
+            break;
+        case 2:
+            loan.isapprove=false;
+            break;
+    }
+    int wBytes=write(loanFD,&loan,sizeof(loan));
+    if(wBytes==-1){
+        perror("error in writing file\n");
+        return false;
+    }
+    lock.l_type=F_UNLCK;
+    fcntl(loanFD,F_SETLK,&lock);
+    close(loanFD);
+
+    int fileFD=open("./EMPLOYEE/employee.txt",O_RDWR);
+    if(fileFD==-1){
+        perror("error in opening in file");
+        return false;
+    }
+    int employee_ID=employee.id;
+    offset=lseek(fileFD,(employee_ID)*sizeof(struct Employee),SEEK_SET);
+
+    if(offset==-1){
+        wBytes=write(connFD,"wrong username",sizeof("wrong username"));
+        return false;
+    }
+
+    lock.l_type=F_WRLCK;
+    lock.l_whence=SEEK_SET;
+    lock.l_start=((employee_ID))*sizeof(struct Employee);
+    lock.l_len=sizeof(struct Employee);
+    lock.l_pid=getpid();
+
+    lock_check=fcntl(fileFD,F_SETLKW,&lock);
+    if(lock_check==-1){
+        perror("error in locking\n");
+        return false;
+    }
+    for(int i=0;i<10;i++){
+        if(employee.loan[i]==ID){
+            employee.loan[i]=-1;
+            break;
+        }
+    }
+    wBytes=write(fileFD,&employee,sizeof(employee));
+    if(wBytes==-1){
+        perror("error in writing to file");
+        return false;
+    }
+    lock.l_type=F_UNLCK;
+    fcntl(fileFD,F_SETLK,&lock);
+    close(fileFD);
     return false;
 }
 
