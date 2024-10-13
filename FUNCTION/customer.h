@@ -694,7 +694,7 @@ bool apply_for_loan(int connFD){
 
     int loanFD=open("./ACCOUNTS/loan.txt",O_RDONLY);
     if(loanFD==-1 && errno==ENOENT){
-        new_loan.ID=0;
+        new_loan.ID=1;
     }else if(loanFD==-1){
         perror("error in opening file\n");
         return false;
