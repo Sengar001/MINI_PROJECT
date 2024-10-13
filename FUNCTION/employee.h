@@ -806,7 +806,7 @@ bool assign_loan_to_employee(int connFD){
         perror("error in opening file");
         return false;
     }
-    int offset=lseek(loanFD,(ID)*sizeof(struct Loan),SEEK_SET);
+    int offset=lseek(loanFD,(ID-1)*sizeof(struct Loan),SEEK_SET);
     if(offset==-1){
         wBytes=write(connFD,"wrong ID",sizeof("wrong ID"));
         read(connFD,rBuffer,sizeof(rBuffer));
@@ -815,7 +815,7 @@ bool assign_loan_to_employee(int connFD){
     struct flock lock;
     lock.l_type=F_WRLCK;
     lock.l_whence=SEEK_SET;
-    lock.l_start=(ID)*sizeof(struct Loan);
+    lock.l_start=(ID-1)*sizeof(struct Loan);
     lock.l_len=sizeof(struct Loan);
     lock.l_pid=getpid();
 
@@ -856,7 +856,7 @@ bool assign_loan_to_employee(int connFD){
     }
     lock.l_type=F_WRLCK;
     lock.l_whence=SEEK_SET;
-    lock.l_start=(ID)*sizeof(struct Employee);
+    lock.l_start=(employee_ID)*sizeof(struct Employee);
     lock.l_len=sizeof(struct Employee);
     lock.l_pid=getpid();
 
@@ -901,7 +901,7 @@ bool assign_loan_to_employee(int connFD){
     }
     close(fileFD);
 
-    lseek(loanFD,(ID)*sizeof(struct Loan),SEEK_SET);
+    lseek(loanFD,(ID-1)*sizeof(struct Loan),SEEK_SET);
     wBytes=write(loanFD,&loan,sizeof(loan));
     if(wBytes==-1){
         perror("error in writeing to file\n");
@@ -925,31 +925,31 @@ bool view_assign_loan_application(int connFD){
         return false;
     }
     bzero(wBuffer,sizeof(wBuffer));
-    int ptr=0;
     struct flock lock;
-    while(employee.loan[ptr]!=-1 && ptr<10){
-        int ID=employee.loan[ptr];
-        lseek(loanFD,(ID)*sizeof(struct Loan),SEEK_SET);
-        lock.l_type=F_RDLCK;
-        lock.l_whence=SEEK_SET;
-        lock.l_start=(ID)*sizeof(struct Loan);
-        lock.l_len=sizeof(struct Loan);
-        lock.l_pid=getpid();
+    for(int i=0;i<10;i++){
+        if(employee.loan[i]!=-1){
+            int ID=employee.loan[i];
+            lseek(loanFD,(ID-1)*sizeof(struct Loan),SEEK_SET);
+            lock.l_type=F_RDLCK;
+            lock.l_whence=SEEK_SET;
+            lock.l_start=(ID-1)*sizeof(struct Loan);
+            lock.l_len=sizeof(struct Loan);
+            lock.l_pid=getpid();
 
-        int lock_check=fcntl(loanFD,F_SETLKW,&lock);
-        if(lock_check==-1){
-            perror("error in locking\n");
-            return false;
-        }
-        int read_bytes=read(loanFD,&loan,sizeof(loan));
-        if(read_bytes==-1){
-            perror("error in reading file\n");
-            return false;
-        }
-        bzero(tBuffer,sizeof(tBuffer));
-        sprintf(tBuffer,"Assigned loan details: \nLoan ID : %d Account : %d Ammount : %f\n",loan.ID,loan.account,loan.ammount);
-        strcat(wBuffer,tBuffer);
-        ptr++;
+            int lock_check=fcntl(loanFD,F_SETLKW,&lock);
+            if(lock_check==-1){
+                perror("error in locking\n");
+                return false;
+            }
+            int read_bytes=read(loanFD,&loan,sizeof(loan));
+            if(read_bytes==-1){
+                perror("error in reading file\n");
+                return false;
+            }
+            bzero(tBuffer,sizeof(tBuffer));
+            sprintf(tBuffer,"Assigned loan details: \nLoan ID : %d Account : %d Ammount : %f\n",loan.ID,loan.account,loan.ammount);
+            strcat(wBuffer,tBuffer);
+        }   
     }
     lock.l_type=F_UNLCK;
     fcntl(loanFD,F_SETLK,&lock);
@@ -980,7 +980,7 @@ bool approved_reject_loan(int connFD){
         perror("error in opening file");
         return false;
     }
-    int offset=lseek(loanFD,(ID)*sizeof(struct Loan),SEEK_SET);
+    int offset=lseek(loanFD,(ID-1)*sizeof(struct Loan),SEEK_SET);
     if(offset==-1){
         write(connFD,"wrong ID",sizeof("wrong ID"));
         read(connFD,rBuffer,sizeof(rBuffer));
@@ -989,7 +989,7 @@ bool approved_reject_loan(int connFD){
     struct flock lock;
     lock.l_type=F_WRLCK;
     lock.l_whence=SEEK_SET;
-    lock.l_start=(ID)*sizeof(struct Loan);
+    lock.l_start=(ID-1)*sizeof(struct Loan);
     lock.l_len=sizeof(struct Loan);
     lock.l_pid=getpid();
 
