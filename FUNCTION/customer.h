@@ -13,6 +13,7 @@
 #include"../CUSTOMER/customer_struct.h"
 #include"../ACCOUNTS/transaction_struct.h"
 #include"../ACCOUNTS/loan_struct.h"
+#include"../ACCOUNTS/feedback_struct.h"
 #define SALT "34"
 struct Customer customer;
 
@@ -26,6 +27,7 @@ void transaction_customer(int *array,int ID);
 int transaction_file(int account,float oldbalance,float newbalance,bool operation);
 bool get_transaction_details(int connFD);
 bool apply_for_loan(int connFD);
+bool add_feedback(int connFD);
 
 
 bool customer_operation(int connFD){
@@ -69,6 +71,7 @@ bool customer_operation(int connFD){
                 change_password(connFD);
                 break;
             case 7:
+                add_feedback(connFD);
                 break;
             case 8:
                 get_transaction_details(connFD);
@@ -789,5 +792,71 @@ bool apply_for_loan(int connFD){
     return false;
 
 }
+
+bool add_feedback(int connFD){
+    int rBytes,wBytes;
+    char rBuffer[1000],wBuffer[1000];
+    struct Feedback new_feedback,prev_feedback;
+
+    int feedbackFD=open("./ACCOUNTS/feedback.txt",O_RDONLY);
+    if(feedbackFD==-1 && errno==ENOENT){
+        new_feedback.ID=0;
+    }else if(feedbackFD==-1){
+        perror("error in opening file\n");
+        return false;
+    }else{
+        int offset=lseek(feedbackFD,-sizeof(struct Feedback),SEEK_END);
+        if(offset==-1){
+            perror("Error seeking to last feedback record!");
+            return false;
+        }
+
+        struct flock lock;
+        lock.l_type=F_RDLCK;
+        lock.l_whence=SEEK_SET;
+        lock.l_start=offset;
+        lock.l_len=sizeof(struct Feedback);
+        lock.l_pid=getpid();
+
+        int lockingStatus=fcntl(feedbackFD,F_SETLKW,&lock);
+        if(lockingStatus==-1){
+            perror("Error obtaining read lock on feedback record!");
+            return false;
+        }
+
+        rBytes=read(feedbackFD,&prev_feedback,sizeof(struct Feedback));
+        if(rBytes==-1){
+            perror("Error while reading feedback record from file!");
+            return false;
+        }
+
+        lock.l_type = F_UNLCK;
+        fcntl(feedbackFD,F_SETLK,&lock);
+        close(feedbackFD);
+        new_feedback.ID=prev_feedback.ID+1;
+    }
+    bzero(rBuffer,sizeof(rBuffer));
+    write(connFD,"write you feedback!",sizeof("write you feedback!"));
+    read(connFD,rBuffer,sizeof(rBuffer));
+    strcpy(new_feedback.buffer,rBuffer);
+
+    new_feedback.isreview=false;
+    
+    feedbackFD=open("./ACCOUNTS/feedback.txt",O_CREAT|O_APPEND|O_WRONLY,S_IRWXU);
+    if(feedbackFD==-1){
+        perror("Error while creating opening feedback file!");
+        return false;
+    }
+    wBytes=write(feedbackFD,&new_feedback,sizeof(new_feedback));
+    if(wBytes==-1){
+        perror("Error while writing feedback record to file!");
+        return false;
+    }
+
+    close(feedbackFD);
+    return false;
+
+}
+
 
 #endif

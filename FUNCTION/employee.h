@@ -14,6 +14,7 @@
 #include"../CUSTOMER/customer_struct.h"
 #include"../ACCOUNTS/transaction_struct.h"
 #include"../ACCOUNTS/loan_struct.h"
+#include"../ACCOUNTS/feedback_struct.h"
 #define SALT "34"
 
 struct Employee employee;
@@ -27,6 +28,7 @@ bool activate_deactivate_account(int connFD);
 bool assign_loan_to_employee(int connFD);
 bool view_assign_loan_application(int connFD);
 bool approved_reject_loan(int connFD);
+bool review_feedback(int connFD);
 
 
 bool employee_operation(int connFD,int role){
@@ -81,7 +83,7 @@ bool employee_operation(int connFD,int role){
             strcpy(wBuffer,"Welcome manager!");
             while(1){
                 strcat(wBuffer,"\n");
-                strcat(wBuffer,"1. activate/deactivate customer account\n2. assign loan application to employee\n3. review cutomer feedback\n4. change password\n5. logout");
+                strcat(wBuffer,"1. activate/deactivate customer account\n2. assign loan application to employee\n3. review custosmer feedback\n4. change password\n5. logout");
                 wBytes=write(connFD,wBuffer,strlen(wBuffer));
                 if(wBytes==-1){
                     perror("Error while writing MANAGER_MENU to client!");
@@ -102,6 +104,7 @@ bool employee_operation(int connFD,int role){
                     assign_loan_to_employee(connFD);
                     break;
                 case 3:
+                    review_feedback(connFD);
                     break;
                 case 4:
                     change_password_employee(connFD);
@@ -1065,6 +1068,61 @@ bool approved_reject_loan(int connFD){
     fcntl(fileFD,F_SETLK,&lock);
     close(fileFD);
     return false;
+}
+
+bool review_feedback(int connFD){
+    int rBytes,wBytes;
+    char rBuffer[1000],wBuffer[1000],tBuffer[1000];
+    struct Feedback feedback;
+    int feedbackFD=open("./ACCOUNTS/feedback.txt",O_RDWR);
+    if(feedbackFD==-1){
+        perror("error in opening file");
+        return false;
+    }
+    int ptr=0;
+    bzero(wBuffer,sizeof(wBuffer));
+    while(1){
+        rBytes=read(feedbackFD,&feedback,sizeof(struct Feedback));
+        if(rBytes==0){
+            break;
+        }
+        if(rBytes==-1){
+            perror("Error while reading feedback record from file!");
+            return false;
+        }
+        if(feedback.isreview==false){
+            ptr++;
+            bzero(tBuffer,sizeof(tBuffer));
+            sprintf(tBuffer,"ID : %d \nFeedback : %s \nStatus : %s\n",feedback.ID,feedback.buffer,(feedback.isreview?"Reviewed":"Not Reviewed"));
+            strcat(wBuffer,tBuffer);
+        }
+    }
+    if(ptr==0){
+        write(connFD,"no pending feedback",sizeof("no pending feedback"));
+        read(connFD,rBuffer,sizeof(rBuffer));
+        return false;
+    }
+    strcat(wBuffer,"\n");
+    strcat(wBuffer,"enter feedback ID to review");
+    write(connFD,wBuffer,sizeof(wBuffer));
+    bzero(rBuffer,sizeof(rBuffer));
+    read(connFD,rBuffer,sizeof(rBuffer));
+    int temp=atoi(rBuffer);
+    int offset=lseek(feedbackFD,temp*sizeof(struct Feedback),SEEK_SET);
+    if(offset==-1){
+        perror("wrong ID!");
+        return false;
+    }
+    read(feedbackFD,&feedback,sizeof(struct Feedback));
+    feedback.isreview=true;
+    offset=lseek(feedbackFD,temp*sizeof(struct Feedback),SEEK_SET);
+    if(offset==-1){
+        perror("wrong ID!");
+        return false;
+    }
+    write(feedbackFD,&feedback,sizeof(feedback));
+    close(feedbackFD);
+    return false;   
 }
 
 #endif
