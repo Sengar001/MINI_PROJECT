@@ -73,7 +73,7 @@ bool employee_operation(int connFD,int role){
                     change_password_employee(connFD);
                     break;
                 default:
-                    wBytes=write(connFD,"Logging out",strlen("Logging out"));
+                    wBytes=write(connFD,"Logging out\n",strlen("Logging out\n"));
                     return false;
                     break;
                 }
@@ -110,7 +110,7 @@ bool employee_operation(int connFD,int role){
                     change_password_employee(connFD);
                     break;
                 default:
-                    wBytes=write(connFD,"Logging out",strlen("Logging out"));
+                    wBytes=write(connFD,"Logging out\n",strlen("Logging out\n"));
                     return false;
                     break;
                 }
@@ -119,7 +119,6 @@ bool employee_operation(int connFD,int role){
     }
     else
     {
-        // ADMIN LOGIN FAILED
         return false;
     }
     return true;
@@ -181,7 +180,7 @@ bool login_employee(int connFD){
     lock.l_type=F_UNLCK;
     fcntl(fileFD,F_SETLK,&lock);
 
-    bool userFound;
+    bool userFound=false;
     if(strcmp(employee.username,rBuffer)==0)
         userFound=true;
     close(fileFD);
@@ -208,12 +207,16 @@ bool login_employee(int connFD){
             return true;
 
         bzero(wBuffer, sizeof(wBuffer));
-        wBytes = write(connFD, "The password specified doesn't match!",strlen("The password specified doesn't match!"));
+        wBytes=write(connFD, "The password specified doesn't match!",strlen("The password specified doesn't match!"));
+        read(connFD,rBuffer,sizeof(rBuffer));
+        return false;
     }
     else
     {
         bzero(wBuffer, sizeof(wBuffer));
-        wBytes = write(connFD,"The login ID specified doesn't exist!",strlen("The login ID specified doesn't exist!"));
+        wBytes=write(connFD,"The login ID specified doesn't exist!",strlen("The login ID specified doesn't exist!"));
+        read(connFD,rBuffer,sizeof(rBuffer));
+        return false;
     }
 
     return false;
@@ -799,16 +802,36 @@ bool activate_deactivate_account(int connFD){
 
 bool assign_loan_to_employee(int connFD){
     int rBytes,wBytes;            
-    char rBuffer[1000],wBuffer[1000];
+    char rBuffer[1000],wBuffer[1000],tBuffer[1000];
     struct Loan loan;
-    write(connFD,"enter loan ID!",sizeof("enter loan ID!"));
-    read(connFD,rBuffer,sizeof(rBuffer));
-    int ID=atoi(rBuffer);
     int loanFD=open("./ACCOUNTS/loan.txt",O_RDWR);
     if(loanFD==-1){
         perror("error in opening file");
         return false;
     }
+
+    bzero(wBuffer,sizeof(wBuffer));
+    while(1){
+        rBytes=read(loanFD,&loan,sizeof(struct Loan));
+        if(rBytes==0){
+            break;
+        }
+        if(rBytes==-1){
+            perror("Error while reading loan record from file!");
+            return false;
+        }
+        bzero(tBuffer,sizeof(tBuffer));
+        sprintf(tBuffer,"ID : %d \nAccount : %d \nAmmount : %f\nStatus: %s\n",loan.ID,loan.account,loan.ammount,(loan.isapprove?"Approved":"Not Approved"));
+        strcat(wBuffer,tBuffer);
+        
+    }
+    strcat(wBuffer,"\n");
+    strcat(wBuffer,"enter loan ID!");
+    write(connFD,wBuffer,sizeof(wBuffer));
+    bzero(rBuffer,sizeof(rBuffer));
+    read(connFD,rBuffer,sizeof(rBuffer));
+    int ID=atoi(rBuffer);
+
     int offset=lseek(loanFD,(ID-1)*sizeof(struct Loan),SEEK_SET);
     if(offset==-1){
         wBytes=write(connFD,"wrong ID",sizeof("wrong ID"));

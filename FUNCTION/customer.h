@@ -77,8 +77,7 @@ bool customer_operation(int connFD){
                 get_transaction_details(connFD);
                 break;
             default:
-                wBytes=write(connFD,"Logging out",strlen("Logging out"));
-                read(connFD,rBuffer,sizeof(rBuffer));
+                wBytes=write(connFD,"Logging out\n",strlen("Logging out\n"));
                 return false;
                 break;
             }
@@ -147,7 +146,7 @@ bool login_customer(int connFD){
     lock.l_type=F_UNLCK;
     fcntl(fileFD,F_SETLK,&lock);
 
-    bool userFound;
+    bool userFound=false;
     if(strcmp(customer.username,rBuffer)==0)
         userFound=true;
     close(fileFD);

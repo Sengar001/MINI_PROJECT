@@ -14,38 +14,47 @@ void connection(int fd){
     printf("client server connection successful\n");
     char rbuff[1000];
     int choice;
-    int wrbytes=write(fd,"Select User for Login\n1.Admin\n2.Manager\n3.Employee\n4.Customer",strlen("Select User for Login\n1.Admin\n2.Manager\n3.Employee\n4.Customer"));
-    if(wrbytes==-1){
-        perror("error in sending message to client\n");
-    }else{
-        bzero(rbuff,sizeof(rbuff));
-        int rbytes=read(fd,rbuff,sizeof(rbuff));
-        if(rbytes==-1){
-            perror("error while reading from client\n");
-        }else if(rbytes==0){
-            printf("no data sent by the client\n");
+    int ptr=0;
+    while(1){
+        int wrbytes=write(fd,"Select User for Login\n1.Admin\n2.Manager\n3.Employee\n4.Customer\n5.Exit",strlen("Select User for Login\n1.Admin\n2.Manager\n3.Employee\n4.Customer\n5.Exit"));
+        if(wrbytes==-1){
+            perror("error in sending message to client\n");
         }else{
-            choice=atoi(rbuff);
-            switch (choice)
-            {
-            case 1:
-                admin_operation(fd);
-                break;
-            case 2:
-                employee_operation(fd,2);
-                break;
-            case 3:
-                employee_operation(fd,3);
-                break;
-            case 4:
-                customer_operation(fd);
-                break;
-            default:
+            bzero(rbuff,sizeof(rbuff));
+            int rbytes=read(fd,rbuff,sizeof(rbuff));
+            if(rbytes==-1){
+                perror("error while reading from client\n");
+            }else if(rbytes==0){
+                printf("no data sent by the client\n");
+            }else{
+                choice=atoi(rbuff);
+                switch (choice)
+                {
+                case 1:
+                    admin_operation(fd);
+                    break;
+                case 2:
+                    employee_operation(fd,2);
+                    break;
+                case 3:
+                    employee_operation(fd,3);
+                    break;
+                case 4:
+                    customer_operation(fd);
+                    break;
+                default:
+                    ptr++;
+                    break;
+                }
+            }
+            if(ptr){
                 break;
             }
         }
     }
     printf("connection break\n");
+    write(fd,"#",sizeof("#"));
+    read(fd,rbuff,sizeof(rbuff));
 } 
 
 int main(){

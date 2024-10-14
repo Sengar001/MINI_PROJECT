@@ -29,6 +29,10 @@ int main(){
             break;
         }else{
             memset(wbuff,0,sizeof(wbuff));
+            char temp=rbuff[0];
+            if(temp=='#'){
+                break;
+            }
             printf("%s\n",rbuff);
             scanf("%[^\n]%*c",wbuff);
             int write_bytes=write(fd,wbuff,sizeof(wbuff));

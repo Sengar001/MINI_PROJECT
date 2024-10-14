@@ -21,6 +21,7 @@ int add_employee(int connFD);
 bool modify_employee(int connFD);
 bool modify_customer(int connFD);
 bool change_password_admin(int connFD);
+bool manage_user_role(int connFD);
 
 bool admin_operation(int connFD){
     if (login_admin(connFD)){
@@ -69,13 +70,13 @@ bool admin_operation(int connFD){
                 }
                 break;
             case 3:
-                //get_Joint_account_details(connFD, NULL);
+                manage_user_role(connFD);
                 break;
             case 4:
                 change_password_admin(connFD);
                 break;
             default:
-                wBytes=write(connFD,"Logging out",strlen("Logging out"));
+                wBytes=write(connFD,"Logging out\n",strlen("Logging out\n"));
                 return false;
                 break;
             }
@@ -83,7 +84,6 @@ bool admin_operation(int connFD){
     }
     else
     {
-        // ADMIN LOGIN FAILED
         return false;
     }
     return true;
@@ -146,7 +146,7 @@ bool login_admin(int connFD){
     lock.l_type=F_UNLCK;
     fcntl(fileFD,F_SETLK,&lock);
 
-    bool userFound;
+    bool userFound=false;
     if(strcmp(admin.username,rBuffer)==0)
         userFound=true;
     close(fileFD);
@@ -690,6 +690,83 @@ bool change_password_admin(int connFD){
         perror("error in writing to client\n");
     }
     read(connFD,rBuffer,sizeof(rBuffer));
+    return false;
+}
+
+bool manage_user_role(int connFD){
+    int rBytes,wBytes;            
+    char rBuffer[1000],wBuffer[1000],tBuffer[1000];
+    struct Employee employee;
+    int employeeFD=open("./EMPLOYEE/employee.txt",O_RDWR);
+    if(employeeFD==-1){
+        perror("error in opening file");
+        return false;
+    }
+
+    bzero(wBuffer,sizeof(wBuffer));
+    while(1){
+        rBytes=read(employeeFD,&employee,sizeof(struct Employee));
+        if(rBytes==0){
+            break;
+        }
+        if(rBytes==-1){
+            perror("Error while reading employee record from file!");
+            return false;
+        }
+        bzero(tBuffer,sizeof(tBuffer));
+        sprintf(tBuffer,"Employee ID : %d \nName : %s\nAge : %d\nRole : %s\n",employee.id,employee.name,employee.age,(employee.ismanager?"Manager":"Employee"));
+        strcat(wBuffer,tBuffer);
+        
+    }
+    strcat(wBuffer,"\n");
+    strcat(wBuffer,"enter employee ID! want to change role");
+    write(connFD,wBuffer,sizeof(wBuffer));
+    bzero(rBuffer,sizeof(rBuffer));
+    read(connFD,rBuffer,sizeof(rBuffer));
+    int ID=atoi(rBuffer);
+
+    int offset=lseek(employeeFD,(ID)*sizeof(struct Employee),SEEK_SET);
+    if(offset==-1){
+        wBytes=write(connFD,"wrong ID",sizeof("wrong ID"));
+        read(connFD,rBuffer,sizeof(rBuffer));
+        return false;
+    }
+    struct flock lock;
+    lock.l_type=F_WRLCK;
+    lock.l_whence=SEEK_SET;
+    lock.l_start=(ID)*sizeof(struct Employee);
+    lock.l_len=sizeof(struct Employee);
+    lock.l_pid=getpid();
+
+    int lock_check=fcntl(employeeFD,F_SETLKW,&lock);
+    if(lock_check==-1){
+        perror("error in locking\n");
+        return false;
+    }
+    rBytes=read(employeeFD,&employee,sizeof(employee));
+    if(rBytes==-1){
+        perror("error in reading file\n");
+        return false;
+    }
+    bzero(wBuffer,sizeof(wBuffer));
+    write(connFD,"change role\n1.Manager\n2.Employee",sizeof("change role\n1.Manager\n2.Employee"));
+    bzero(rBuffer,sizeof(rBuffer));
+    read(connFD,rBuffer,sizeof(rBuffer));
+    int choice=atoi(rBuffer);
+    if(choice==1){
+        employee.ismanager=true;
+    }else if(choice==2){
+        employee.ismanager=false;
+    }
+    lseek(employeeFD,(ID)*sizeof(struct Employee),SEEK_SET);
+    wBytes=write(employeeFD,&employee,sizeof(employee));
+    if(wBytes==-1){
+        perror("error in writing file\n");
+        return false;
+    }
+    lock.l_type=F_UNLCK;
+    fcntl(employeeFD,F_SETLK,&lock);
+    close(employeeFD);
     return false;
 }
 
