@@ -10,6 +10,8 @@
 #include<fcntl.h>
 #include<stdlib.h>
 #include<errno.h>
+#include <sys/ipc.h>
+#include <sys/sem.h>
 #include"../EMPLOYEE/employee_struct.h"
 #include"../CUSTOMER/customer_struct.h"
 #include"../ACCOUNTS/transaction_struct.h"
@@ -18,6 +20,7 @@
 #define SALT "34"
 
 struct Employee employee;
+int semId;
 
 bool login_employee(int connFD);
 int add_customer(int connFD);
@@ -29,13 +32,37 @@ bool assign_loan_to_employee(int connFD);
 bool view_assign_loan_application(int connFD);
 bool approved_reject_loan(int connFD);
 bool review_feedback(int connFD);
+bool lock_critical_section(struct sembuf *semOp);
+bool unlock_critical_section(struct sembuf *sem_op);
 
 
 bool employee_operation(int connFD,int role){
     if (login_employee(connFD)){
         int wBytes,rBytes;            
         char rBuffer[1000], wBuffer[1000];
-        if(employee.ismanager==false && role==3){ 
+        if(employee.ismanager==false && role==3){
+            
+            int semKey=ftok("./EMPLOYEE/employee.txt",employee.id); 
+            union semun{
+                int val; 
+            } semSet;
+            semId=semget(semKey,1,0);
+            if(semId==-1){
+                semId=semget(semKey,1,IPC_CREAT|0700);
+                if (semId == -1){
+                    perror("Error while creating semaphore!");
+                    _exit(1);
+                }
+                semSet.val = 1; 
+                int semctlStatus=semctl(semId,0,SETVAL,semSet);
+                if(semctlStatus==-1){
+                    perror("Error while initializing a binary sempahore!");
+                    _exit(1);
+                }
+            }  
+            struct sembuf semOp;
+            lock_critical_section(&semOp);
+
             bzero(wBuffer,sizeof(wBuffer));
             strcpy(wBuffer,"Welcome employee!");
             while(1){
@@ -74,11 +101,33 @@ bool employee_operation(int connFD,int role){
                     break;
                 default:
                     wBytes=write(connFD,"Logging out\n",strlen("Logging out\n"));
+                    unlock_critical_section(&semOp);
                     return false;
                     break;
                 }
             }
         }else if(employee.ismanager==true && role==2){
+            int semKey=ftok("./EMPLOYEE/employee.txt",employee.id); 
+            union semun{
+                int val; 
+            } semSet;
+            semId=semget(semKey,1,0);
+            if(semId==-1){
+                semId=semget(semKey,1,IPC_CREAT|0700);
+                if (semId == -1){
+                    perror("Error while creating semaphore!");
+                    _exit(1);
+                }
+                semSet.val = 1; 
+                int semctlStatus=semctl(semId,0,SETVAL,semSet);
+                if(semctlStatus==-1){
+                    perror("Error while initializing a binary sempahore!");
+                    _exit(1);
+                }
+            }
+            struct sembuf semOp;
+            lock_critical_section(&semOp);
+
             bzero(wBuffer,sizeof(wBuffer));
             strcpy(wBuffer,"Welcome manager!");
             while(1){
@@ -111,6 +160,7 @@ bool employee_operation(int connFD,int role){
                     break;
                 default:
                     wBytes=write(connFD,"Logging out\n",strlen("Logging out\n"));
+                    unlock_critical_section(&semOp);
                     return false;
                     break;
                 }
@@ -152,6 +202,7 @@ bool login_employee(int connFD){
     strcpy(tBuffer,rBuffer);
     strtok(tBuffer,"-");
     ID=atoi(strtok(NULL,"-"));
+
     int fileFD=open("./EMPLOYEE/employee.txt",O_RDONLY);
     if(fileFD==-1){
         perror("error in opening in file");
@@ -227,43 +278,6 @@ int add_customer(int connFD){
     char rBuffer[1000],wBuffer[1000];
     struct Customer new_customer,prev_customer;
 
-    int customerFD=open("./CUSTOMER/customer.txt",O_RDONLY);
-    if(customerFD==-1 && errno==ENOENT){
-        new_customer.account=1;
-    }else if(customerFD==-1){
-        perror("error in opening file\n");
-        return false;
-    }else{
-        int offset=lseek(customerFD,-sizeof(struct Customer),SEEK_END);
-        if(offset==-1){
-            perror("Error seeking to last customer record!");
-            return false;
-        }
-
-        struct flock lock;
-        lock.l_type=F_RDLCK;
-        lock.l_whence=SEEK_SET;
-        lock.l_start=offset;
-        lock.l_len=sizeof(struct Customer);
-        lock.l_pid=getpid();
-
-        int lockingStatus=fcntl(customerFD,F_SETLKW,&lock);
-        if(lockingStatus==-1){
-            perror("Error obtaining read lock on customer record!");
-            return false;
-        }
-
-        rBytes=read(customerFD,&prev_customer,sizeof(struct Customer));
-        if(rBytes==-1){
-            perror("Error while reading customer record from file!");
-            return false;
-        }
-
-        lock.l_type = F_UNLCK;
-        fcntl(customerFD,F_SETLK,&lock);
-        close(customerFD);
-        new_customer.account=prev_customer.account + 1;
-    }
     // name
     bzero(wBuffer,sizeof(wBuffer));
     sprintf(wBuffer,"Enter the details for the customer\nWhat is the customer's name?");
@@ -279,12 +293,6 @@ int add_customer(int connFD){
         return false;
     }
     strcpy(new_customer.name,rBuffer);
-
-    //username 
-    strcpy(new_customer.username,new_customer.name);
-    strcat(new_customer.username,"-");
-    sprintf(wBuffer,"%d",new_customer.account);
-    strcat(new_customer.username,wBuffer);
 
     // gender
     bzero(wBuffer,sizeof(wBuffer));
@@ -348,6 +356,49 @@ int add_customer(int connFD){
         new_customer.transaction[i]=-1;
     }
 
+    int customerFD=open("./CUSTOMER/customer.txt",O_RDWR);
+    if(customerFD==-1 && errno==ENOENT){
+        new_customer.account=1;
+    }else if(customerFD==-1){
+        perror("error in opening file\n");
+        return false;
+    }else{
+        int offset=lseek(customerFD,-sizeof(struct Customer),SEEK_END);
+        if(offset==-1){
+            perror("Error seeking to last customer record!");
+            return false;
+        }
+
+        struct flock lock;
+        lock.l_type=F_WRLCK;
+        lock.l_whence=SEEK_SET;
+        lock.l_start=offset;
+        lock.l_len=sizeof(struct Customer);
+        lock.l_pid=getpid();
+
+        int lockingStatus=fcntl(customerFD,F_SETLKW,&lock);
+        if(lockingStatus==-1){
+            perror("Error obtaining read lock on customer record!");
+            return false;
+        }
+
+        rBytes=read(customerFD,&prev_customer,sizeof(struct Customer));
+        if(rBytes==-1){
+            perror("Error while reading customer record from file!");
+            return false;
+        }
+
+        lock.l_type = F_UNLCK;
+        fcntl(customerFD,F_SETLK,&lock);
+        close(customerFD);
+        new_customer.account=prev_customer.account + 1;
+    }
+    //username 
+    strcpy(new_customer.username,new_customer.name);
+    strcat(new_customer.username,"-");
+    sprintf(wBuffer,"%d",new_customer.account);
+    strcat(new_customer.username,wBuffer);
+
     // password
     char hashing[1000];
     strcpy(hashing,crypt(new_customer.name,SALT));
@@ -358,6 +409,21 @@ int add_customer(int connFD){
         perror("Error while creating opening employee file!");
         return false;
     }
+    
+    struct flock lock;
+    lock.l_type=F_WRLCK;
+    lock.l_whence=SEEK_END;
+    lock.l_start=0;
+    lock.l_len=0;
+    lock.l_pid=getpid();
+
+    int lock_status=fcntl(customerFD,F_SETLKW,&lock);
+    if(lock_status==-1){
+        perror("Write lock on customer file");
+        close(customerFD);
+        return -1;
+    }
+
     wBytes=write(customerFD,&new_customer,sizeof(new_customer));
     if(wBytes==-1){
         perror("Error while writing employee record to file!");
@@ -709,7 +775,7 @@ bool activate_deactivate_account(int connFD){
     write(connFD,"enter account number want to activate/deactivate!",sizeof("enter account number want to activate/deactivate!"));
     read(connFD,rBuffer,sizeof(rBuffer));
     int ID=atoi(rBuffer)-1;
-    int fileFD=open("./CUSTOMER/customer.txt",O_RDONLY);
+    int fileFD=open("./CUSTOMER/customer.txt",O_RDWR);
     if(fileFD==-1){
         perror("error in opening in file");
         return false;
@@ -722,7 +788,7 @@ bool activate_deactivate_account(int connFD){
     }
 
     struct flock lock;
-    lock.l_type=F_RDLCK;
+    lock.l_type=F_WRLCK;
     lock.l_whence=SEEK_SET;
     lock.l_start=(ID)*sizeof(struct Customer);
     lock.l_len=sizeof(struct Customer);
@@ -734,9 +800,6 @@ bool activate_deactivate_account(int connFD){
         return false;
     }
     int read_bytes=read(fileFD,&customer,sizeof(customer));
-    lock.l_type=F_UNLCK;
-    fcntl(fileFD,F_SETLK,&lock);
-    close(fileFD);
     bzero(wBuffer,sizeof(wBuffer));
     sprintf(wBuffer,"currently account is %s",(customer.active?"ACTIVE":"DEACTIVE"));
     if(customer.active==true){
@@ -769,11 +832,6 @@ bool activate_deactivate_account(int connFD){
         }
     }
 
-    fileFD=open("./CUSTOMER/customer.txt",O_WRONLY);
-    if(fileFD==-1){
-        perror("error in opening in file");
-        return false;
-    }
     offset=lseek(fileFD,(ID)*sizeof(struct Customer),SEEK_SET);
 
     if(offset==-1){
@@ -809,6 +867,18 @@ bool assign_loan_to_employee(int connFD){
         perror("error in opening file");
         return false;
     }
+    struct flock lock;
+    lock.l_type=F_RDLCK;
+    lock.l_whence=SEEK_SET;
+    lock.l_pid=getpid();
+
+    int lock_status=fcntl(loanFD,F_SETLKW,&lock);
+    if(lock_status==-1){
+        perror("Write lock\n");
+        close(loanFD);
+        return false;
+    }
+
 
     bzero(wBuffer,sizeof(wBuffer));
     while(1){
@@ -838,7 +908,6 @@ bool assign_loan_to_employee(int connFD){
         read(connFD,rBuffer,sizeof(rBuffer));
         return false;
     }
-    struct flock lock;
     lock.l_type=F_WRLCK;
     lock.l_whence=SEEK_SET;
     lock.l_start=(ID-1)*sizeof(struct Loan);
@@ -1147,5 +1216,29 @@ bool review_feedback(int connFD){
     close(feedbackFD);
     return false;   
 }
+
+bool lock_critical_section(struct sembuf *semOp){
+    semOp->sem_flg=SEM_UNDO;
+    semOp->sem_op=-1;
+    semOp->sem_num=0;
+    int semopStatus=semop(semId,semOp,1);
+    if(semopStatus == -1){
+        perror("Error while locking critical section");
+        return false;
+    }
+    return true;
+}
+
+bool unlock_critical_section(struct sembuf *semOp){
+    semOp->sem_op=1;
+    int semopStatus=semop(semId,semOp,1);
+    if(semopStatus == -1){
+        perror("Error while operating on semaphore!");
+        _exit(1);
+    }
+    return true;
+}
+
+
 
 #endif
