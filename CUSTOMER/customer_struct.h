@@ -9,7 +9,7 @@ struct Customer
     char username[30];
     char password[30];
     int account;
-    bool active;
+    bool active;//true:active,false:not active
     float balance;
     int transaction[10];
     int loanID;

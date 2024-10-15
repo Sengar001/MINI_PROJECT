@@ -10,12 +10,16 @@
 #include<fcntl.h>
 #include<stdlib.h>
 #include<errno.h>
+#include <sys/ipc.h>
+#include <sys/sem.h>
 #include"../CUSTOMER/customer_struct.h"
 #include"../ACCOUNTS/transaction_struct.h"
 #include"../ACCOUNTS/loan_struct.h"
 #include"../ACCOUNTS/feedback_struct.h"
 #define SALT "34"
+
 struct Customer customer;
+int semId;
 
 bool login_customer(int connFD);
 bool view_balance(int connFD);
@@ -28,12 +32,34 @@ int transaction_file(int account,float oldbalance,float newbalance,bool operatio
 bool get_transaction_details(int connFD);
 bool apply_for_loan(int connFD);
 bool add_feedback(int connFD);
+bool lock_critical_section(struct sembuf *semOp);
+bool unlock_critical_section(struct sembuf *sem_op);
 
 
 bool customer_operation(int connFD){
     if (login_customer(connFD)){
         int wBytes,rBytes;            
         char rBuffer[1000], wBuffer[1000]; 
+        int semKey=ftok("./CUSTOMER/customer.txt",customer.account); 
+            union semun{
+                int val; 
+            } semSet;
+        semId=semget(semKey,1,0);
+        if(semId==-1){
+            semId=semget(semKey,1,IPC_CREAT|0700);
+            if (semId == -1){
+                perror("Error while creating semaphore!");
+                _exit(1);
+            }
+            semSet.val = 1; 
+            int semctlStatus=semctl(semId,0,SETVAL,semSet);
+            if(semctlStatus==-1){
+                perror("Error while initializing a binary sempahore!");
+                _exit(1);
+            }
+        }  
+        struct sembuf semOp;
+        lock_critical_section(&semOp);
         bzero(wBuffer,sizeof(wBuffer));
         strcpy(wBuffer,"Welcome customer!");
         while(1){
@@ -78,6 +104,7 @@ bool customer_operation(int connFD){
                 break;
             default:
                 wBytes=write(connFD,"Logging out\n",strlen("Logging out\n"));
+                unlock_critical_section(&semOp);
                 return false;
                 break;
             }
@@ -127,6 +154,7 @@ bool login_customer(int connFD){
 
     if(offset==-1){
         wBytes=write(connFD,"wrong username",sizeof("wrong username"));
+        read(connFD,rBuffer,sizeof(rBuffer));
         return false;
     }
 
@@ -146,9 +174,16 @@ bool login_customer(int connFD){
     lock.l_type=F_UNLCK;
     fcntl(fileFD,F_SETLK,&lock);
 
+    if(customer.active==false){
+        write(connFD,"You'r account has been deactivated!",sizeof("You'r account has been deactivated!"));
+        read(connFD,rBuffer,sizeof(rBuffer));
+        return false;
+    }
+
     bool userFound=false;
     if(strcmp(customer.username,rBuffer)==0)
         userFound=true;
+        
     close(fileFD);
     if(userFound)
     {
@@ -694,6 +729,14 @@ bool apply_for_loan(int connFD){
     }
     struct Loan new_loan,prev_loan;
 
+    new_loan.account=customer.account;
+    write(connFD,"enter loan ammount",sizeof("enter loan ammount"));
+    bzero(rBuffer,sizeof(rBuffer));
+    read(connFD,rBuffer,sizeof(rBuffer));
+    new_loan.ammount=atoi(rBuffer);
+    new_loan.isapprove=false;
+    new_loan.isassign=false;
+
     int loanFD=open("./ACCOUNTS/loan.txt",O_RDONLY);
     if(loanFD==-1 && errno==ENOENT){
         new_loan.ID=1;
@@ -707,43 +750,49 @@ bool apply_for_loan(int connFD){
             return false;
         }
 
-    struct flock lock;
-    lock.l_type=F_RDLCK;
-    lock.l_whence=SEEK_SET;
-    lock.l_start=offset;
-    lock.l_len=sizeof(struct Loan);
-    lock.l_pid=getpid();
+        struct flock lock;
+        lock.l_type=F_RDLCK;
+        lock.l_whence=SEEK_SET;
+        lock.l_start=offset;
+        lock.l_len=sizeof(struct Loan);
+        lock.l_pid=getpid();
 
-    int lockingStatus=fcntl(loanFD,F_SETLKW,&lock);
-    if(lockingStatus==-1){
-        perror("Error obtaining read lock on loan record!");
-        return false;
-    }
+        int lockingStatus=fcntl(loanFD,F_SETLKW,&lock);
+        if(lockingStatus==-1){
+            perror("Error obtaining read lock on loan record!");
+            return false;
+        }
 
-    rBytes=read(loanFD,&prev_loan,sizeof(struct Loan));
-    if(rBytes==-1){
+        rBytes=read(loanFD,&prev_loan,sizeof(struct Loan));
+        if(rBytes==-1){
         perror("Error while reading loan record from file!");
         return false;
-    }
+        }
 
-    lock.l_type = F_UNLCK;
-    fcntl(loanFD,F_SETLK,&lock);
-    close(loanFD);
-    new_loan.ID=prev_loan.ID+1;
+        lock.l_type = F_UNLCK;
+        fcntl(loanFD,F_SETLK,&lock);
+        close(loanFD);
+        new_loan.ID=prev_loan.ID+1;
     }
-
-    new_loan.account=customer.account;
-    write(connFD,"enter loan ammount",sizeof("enter loan ammount"));
-    bzero(rBuffer,sizeof(rBuffer));
-    read(connFD,rBuffer,sizeof(rBuffer));
-    new_loan.ammount=atoi(rBuffer);
-    new_loan.isapprove=false;
-    new_loan.isassign=false;
 
     loanFD=open("./ACCOUNTS/loan.txt",O_CREAT|O_APPEND|O_WRONLY,S_IRWXU);
     if(loanFD==-1){
         perror("Error while creating opening loan file!");
         return false;
+    }
+
+    struct flock lock;
+    lock.l_type=F_WRLCK;
+    lock.l_whence=SEEK_END;
+    lock.l_start=0;
+    lock.l_len=0;
+    lock.l_pid=getpid();
+
+    int lock_status=fcntl(loanFD,F_SETLKW,&lock);
+    if(lock_status==-1){
+        perror("Write lock on loan file");
+        close(loanFD);
+        return -1;
     }
 
     wBytes=write(loanFD,&new_loan,sizeof(struct Loan));
@@ -768,7 +817,6 @@ bool apply_for_loan(int connFD){
         return false;
     }
 
-    struct flock lock;
     lock.l_type=F_WRLCK;
     lock.l_whence=SEEK_SET;
     lock.l_start=(customer.account-1)*sizeof(struct Customer);
@@ -796,6 +844,13 @@ bool add_feedback(int connFD){
     int rBytes,wBytes;
     char rBuffer[1000],wBuffer[1000];
     struct Feedback new_feedback,prev_feedback;
+
+    bzero(rBuffer,sizeof(rBuffer));
+    write(connFD,"write you feedback!",sizeof("write you feedback!"));
+    read(connFD,rBuffer,sizeof(rBuffer));
+    strcpy(new_feedback.buffer,rBuffer);
+
+    new_feedback.isreview=false;
 
     int feedbackFD=open("./ACCOUNTS/feedback.txt",O_RDONLY);
     if(feedbackFD==-1 && errno==ENOENT){
@@ -834,18 +889,27 @@ bool add_feedback(int connFD){
         close(feedbackFD);
         new_feedback.ID=prev_feedback.ID+1;
     }
-    bzero(rBuffer,sizeof(rBuffer));
-    write(connFD,"write you feedback!",sizeof("write you feedback!"));
-    read(connFD,rBuffer,sizeof(rBuffer));
-    strcpy(new_feedback.buffer,rBuffer);
-
-    new_feedback.isreview=false;
     
     feedbackFD=open("./ACCOUNTS/feedback.txt",O_CREAT|O_APPEND|O_WRONLY,S_IRWXU);
     if(feedbackFD==-1){
         perror("Error while creating opening feedback file!");
         return false;
     }
+
+    struct flock lock;
+    lock.l_type=F_WRLCK;
+    lock.l_whence=SEEK_END;
+    lock.l_start=0;
+    lock.l_len=0;
+    lock.l_pid=getpid();
+
+    int lock_status=fcntl(feedbackFD,F_SETLKW,&lock);
+    if(lock_status==-1){
+        perror("Write lock on feedback file");
+        close(feedbackFD);
+        return -1;
+    }
+
     wBytes=write(feedbackFD,&new_feedback,sizeof(new_feedback));
     if(wBytes==-1){
         perror("Error while writing feedback record to file!");
