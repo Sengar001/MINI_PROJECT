@@ -10,11 +10,17 @@
 #include<fcntl.h>
 #include<stdlib.h>
 #include<errno.h>
+#include <sys/ipc.h>
+#include <sys/sem.h>
 #include"../ADMIN/admin_struct.h"
 #include"../EMPLOYEE/employee_struct.h"
 #include"../CUSTOMER/customer_struct.h"
+#include"./employee.h"
 
 #define SALT "34"
+
+struct Employee employee;
+int semId;
 
 bool login_admin(int connFD);
 int add_employee(int connFD);
@@ -26,7 +32,27 @@ bool manage_user_role(int connFD);
 bool admin_operation(int connFD){
     if (login_admin(connFD)){
         int wBytes,rBytes;            
-        char rBuffer[1000], wBuffer[1000]; 
+        char rBuffer[1000], wBuffer[1000];
+        int semKey=ftok("./CUSTOMER/customer.txt",customer.account); 
+        union semun{
+            int val; 
+        } semSet;
+        semId=semget(semKey,1,0);
+        if(semId==-1){
+            semId=semget(semKey,1,IPC_CREAT|0700);
+            if (semId == -1){
+                perror("Error while creating semaphore!");
+                _exit(1);
+            }
+            semSet.val = 1; 
+            int semctlStatus=semctl(semId,0,SETVAL,semSet);
+            if(semctlStatus==-1){
+                perror("Error while initializing a binary sempahore!");
+                _exit(1);
+            }
+        }  
+        struct sembuf semOp;
+        lock_critical_section(&semOp); 
         bzero(wBuffer,sizeof(wBuffer));
         strcpy(wBuffer,"Welcome admin!");
         while(1){
@@ -77,6 +103,7 @@ bool admin_operation(int connFD){
                 break;
             default:
                 wBytes=write(connFD,"Logging out\n",strlen("Logging out\n"));
+                unlock_critical_section(&semOp);
                 return false;
                 break;
             }

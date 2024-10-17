@@ -17,6 +17,7 @@
 #include"../ACCOUNTS/transaction_struct.h"
 #include"../ACCOUNTS/loan_struct.h"
 #include"../ACCOUNTS/feedback_struct.h"
+#include"./customer.h"
 #define SALT "34"
 
 struct Employee employee;
@@ -867,21 +868,30 @@ bool assign_loan_to_employee(int connFD){
         perror("error in opening file");
         return false;
     }
+    int ID=1;
     struct flock lock;
-    lock.l_type=F_RDLCK;
-    lock.l_whence=SEEK_SET;
-    lock.l_pid=getpid();
-
-    int lock_status=fcntl(loanFD,F_SETLKW,&lock);
-    if(lock_status==-1){
-        perror("Write lock\n");
-        close(loanFD);
-        return false;
-    }
-
-
     bzero(wBuffer,sizeof(wBuffer));
     while(1){
+        int offset=lseek(loanFD,(ID-1)*sizeof(struct Loan),SEEK_SET);
+        if(offset==-1){
+            wBytes=write(connFD,"wrong ID",sizeof("wrong ID"));
+            read(connFD,rBuffer,sizeof(rBuffer));
+            return false;
+        }
+
+
+        lock.l_type=F_RDLCK;
+        lock.l_whence=SEEK_SET;
+        lock.l_start=(ID-1)*sizeof(struct Loan);
+        lock.l_len=sizeof(struct Loan);
+        lock.l_pid=getpid();
+
+        int lock_status=fcntl(loanFD,F_SETLKW,&lock);
+        if(lock_status==-1){
+            perror("Write lock\n");
+            close(loanFD);
+            return false;
+        }
         rBytes=read(loanFD,&loan,sizeof(struct Loan));
         if(rBytes==0){
             break;
@@ -893,14 +903,15 @@ bool assign_loan_to_employee(int connFD){
         bzero(tBuffer,sizeof(tBuffer));
         sprintf(tBuffer,"ID : %d \nAccount : %d \nAmmount : %f\nStatus: %s\n",loan.ID,loan.account,loan.ammount,(loan.isapprove?"Approved":"Not Approved"));
         strcat(wBuffer,tBuffer);
-        
+        ID++;
+            
     }
     strcat(wBuffer,"\n");
     strcat(wBuffer,"enter loan ID!");
     write(connFD,wBuffer,sizeof(wBuffer));
     bzero(rBuffer,sizeof(rBuffer));
     read(connFD,rBuffer,sizeof(rBuffer));
-    int ID=atoi(rBuffer);
+    ID=atoi(rBuffer);
 
     int offset=lseek(loanFD,(ID-1)*sizeof(struct Loan),SEEK_SET);
     if(offset==-1){
@@ -1104,14 +1115,23 @@ bool approved_reject_loan(int connFD){
     bzero(rBuffer,sizeof(rBuffer));
     read(connFD,rBuffer,sizeof(rBuffer));
     int choice=atoi(rBuffer);
+    int ptr=0;
     switch(choice){
         case 1:
             loan.isapprove=true;
+            ptr++;
             break;
         case 2:
             loan.isapprove=false;
             break;
     }
+    offset=lseek(loanFD,(ID-1)*sizeof(struct Loan),SEEK_SET);
+    if(offset==-1){
+        write(connFD,"wrong ID",sizeof("wrong ID"));
+        read(connFD,rBuffer,sizeof(rBuffer));
+        return false;
+    }
+
     int wBytes=write(loanFD,&loan,sizeof(loan));
     if(wBytes==-1){
         perror("error in writing file\n");
@@ -1121,6 +1141,55 @@ bool approved_reject_loan(int connFD){
     fcntl(loanFD,F_SETLK,&lock);
     close(loanFD);
 
+    // customer
+    struct Customer customer;
+    customer.account=loan.account;
+    int customerFD=open("./CUSTOMER/customer.txt",O_RDWR);
+    if(customerFD==-1){
+        perror("error in opening in file");
+        return false;
+    }
+    offset=lseek(customerFD,(customer.account-1)*sizeof(struct Customer),SEEK_SET);
+
+    if(offset==-1){
+        wBytes=write(connFD,"wrong username",sizeof("wrong username"));
+        return false;
+    }
+    lock.l_type=F_WRLCK;
+    lock.l_whence=SEEK_SET;
+    lock.l_start=(customer.account-1)*sizeof(struct Customer);
+    lock.l_len=sizeof(struct Customer);
+    lock.l_pid=getpid();
+
+    lock_check=fcntl(customerFD,F_SETLKW,&lock);
+    if(lock_check==-1){
+        perror("error in locking\n");
+        return false;
+    }
+    read(customerFD,&customer,sizeof(customer));
+    if(ptr){
+        int transactionID=transaction_file(customer.account,customer.balance,customer.balance+loan.ammount,1);
+        transaction_customer(customer.transaction,transactionID);
+
+        float new_balance=customer.balance+loan.ammount;
+        customer.balance=new_balance;
+    }
+    customer.loanID=-1;
+    offset=lseek(customerFD,(customer.account-1)*sizeof(struct Customer),SEEK_SET);
+
+    if(offset==-1){
+        wBytes=write(connFD,"wrong username",sizeof("wrong username"));
+        return false;
+    }
+    wBytes=write(customerFD,&customer,sizeof(customer));
+    if(wBytes==-1){
+        perror("error in writing to file\n");
+    }
+    lock.l_type=F_UNLCK;
+    fcntl(customerFD,F_SETLK,&lock);
+    close(customerFD);
+
+    // employee
     int fileFD=open("./EMPLOYEE/employee.txt",O_RDWR);
     if(fileFD==-1){
         perror("error in opening in file");
